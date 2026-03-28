@@ -1,0 +1,824 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Workout Tracker</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+      background: #09090f;
+      color: #d8d8ee;
+      min-height: 100vh;
+    }
+    .app { max-width: 900px; margin: 0 auto; padding: 40px 20px 80px; }
+
+    /* ── HEADER ── */
+    .app-header { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 28px; gap: 12px; }
+    .app-header-left {}
+    .app-title { font-size: 28px; font-weight: 800; letter-spacing: -0.5px; color: #fff; margin-bottom: 4px; }
+    .app-sub   { font-size: 13px; color: #44445a; }
+    .header-btns { display: flex; gap: 7px; flex-shrink: 0; padding-top: 4px; }
+    .btn-hdr {
+      padding: 7px 13px; font-size: 12px; font-weight: 600; font-family: inherit;
+      border-radius: 8px; cursor: pointer; white-space: nowrap;
+      background: #111120; border: 1px solid #1e1e34; color: #7070a0;
+      transition: all 0.12s;
+    }
+    .btn-hdr:hover { background: #1a1a32; border-color: #3a3a60; color: #b0b0e0; }
+
+    /* ── STATS ── */
+    .stats { display: flex; gap: 10px; margin-bottom: 26px; }
+    .stat  { flex: 1; background: #111120; border: 1px solid #1c1c30; border-radius: 12px; padding: 16px 20px; }
+    .stat-val { font-size: 30px; font-weight: 700; color: #fff; line-height: 1; }
+    .stat-lbl { font-size: 11px; color: #44445a; margin-top: 6px; text-transform: uppercase; letter-spacing: 0.5px; }
+
+    /* ── LEGEND ── */
+    .legend { display: flex; flex-wrap: wrap; gap: 7px; margin-bottom: 24px; }
+    .leg-item { display: flex; align-items: center; gap: 6px; font-size: 12px; color: #8888a8; background: #111120; border: 1px solid #1c1c30; border-radius: 20px; padding: 4px 11px; }
+    .leg-dot  { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+
+    /* ── CALENDAR ── */
+    .cal-head { display: grid; grid-template-columns: repeat(7, 1fr); gap: 7px; margin-bottom: 7px; }
+    .wday { text-align: center; font-size: 11px; font-weight: 700; color: #333350; text-transform: uppercase; letter-spacing: 0.5px; }
+    .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 7px; }
+
+    .day {
+      background: #111120; border: 1px solid #1a1a2c; border-radius: 10px;
+      padding: 10px; min-height: 90px; cursor: pointer; position: relative;
+      overflow: hidden; display: flex; flex-direction: column;
+      transition: transform 0.12s, border-color 0.12s, box-shadow 0.12s;
+    }
+    .day:hover    { transform: translateY(-2px); border-color: #2e2e4a; box-shadow: 0 6px 20px rgba(0,0,0,0.5); }
+    .day.is-today { border-color: #5a5adc; box-shadow: 0 0 0 1px #5a5adc; }
+    .day.is-future { opacity: 0.25; pointer-events: none; }
+
+    .day-bands { position: absolute; inset: 0; display: flex; flex-direction: column; }
+    .day-band  { flex: 1; opacity: 0.82; }
+
+    .day-top { position: relative; z-index: 1; display: flex; align-items: baseline; gap: 4px; }
+    .day-num  { font-size: 14px; font-weight: 700; color: #3c3c5a; }
+    .day-mo   { font-size: 9px; font-weight: 700; color: #30304a; text-transform: uppercase; letter-spacing: 0.5px; }
+    .day.has-workout .day-num,
+    .day.has-workout .day-mo { color: rgba(255,255,255,0.92); text-shadow: 0 1px 4px rgba(0,0,0,0.6); }
+    .day.is-today .day-num { color: #fff; }
+
+    .day-tags { position: relative; z-index: 1; display: flex; flex-wrap: wrap; gap: 3px; margin-top: auto; }
+    .day-tag  { font-size: 8px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.3px; padding: 2px 5px; border-radius: 4px; background: rgba(0,0,0,0.38); color: rgba(255,255,255,0.92); }
+
+    /* ── MODAL ── */
+    .backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.78); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); z-index: 300; display: none; align-items: center; justify-content: center; padding: 20px; }
+    .backdrop.open { display: flex; }
+    .modal { background: #0f0f1e; border: 1px solid #22223a; border-radius: 18px; width: 100%; max-width: 560px; max-height: 90vh; display: flex; flex-direction: column; animation: popIn 0.18s cubic-bezier(.34,1.26,.64,1); }
+    @keyframes popIn { from { opacity:0; transform:scale(0.94) translateY(12px); } to { opacity:1; transform:scale(1) translateY(0); } }
+
+    .modal-head { padding: 22px 24px 18px; border-bottom: 1px solid #1e1e32; position: relative; overflow: hidden; flex-shrink: 0; }
+    .mhead-bands { position: absolute; inset: 0; display: flex; flex-direction: column; opacity: 0.16; }
+    .mhead-band  { flex: 1; }
+    .mhead-inner { position: relative; z-index: 1; display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+    .mdate-main  { font-size: 21px; font-weight: 800; color: #fff; }
+    .mdate-sub   { font-size: 13px; color: #555570; margin-top: 4px; }
+    .btn-x { width: 30px; height: 30px; border-radius: 50%; border: 1px solid #2a2a42; background: #1a1a2e; color: #7777a0; cursor: pointer; font-size: 14px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; margin-top: 2px; transition: background 0.12s, color 0.12s; }
+    .btn-x:hover { background: #2e2e4a; color: #fff; }
+
+    .modal-body { overflow-y: auto; flex: 1; padding: 20px 24px 28px; }
+
+    /* ── SESSIONS (view) ── */
+    .sec-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.8px; color: #333352; margin-bottom: 12px; }
+    .sessions-wrap { margin-bottom: 22px; }
+    .empty-msg { font-size: 14px; color: #333350; padding: 8px 0 4px; }
+
+    .session-card { background: #191930; border: 1px solid #242444; border-radius: 10px; padding: 14px; margin-bottom: 9px; }
+    .s-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+    .s-bp  { display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: 14px; color: #e0e0f8; }
+    .s-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+    .s-actions { display: flex; gap: 4px; }
+    .btn-icon { background: none; border: none; cursor: pointer; font-size: 13px; padding: 4px 7px; border-radius: 5px; line-height: 1; color: #444460; transition: background 0.12s, color 0.12s; }
+    .btn-icon.edit:hover { background: #1e2040; color: #8888ff; }
+    .btn-icon.del:hover  { background: #2d101e; color: #ff6b7a; }
+
+    .s-exercises { display: flex; flex-direction: column; gap: 7px; }
+    .s-ex { }
+    .s-ex-n { font-size: 12px; font-weight: 700; color: #b0b0d8; margin-bottom: 4px; }
+    .s-set-pills { display: flex; flex-wrap: wrap; gap: 4px; }
+    .s-set-pill  { font-size: 11px; padding: 2px 8px; background: #1f1f3a; border: 1px solid #2e2e50; border-radius: 4px; color: #8888c0; }
+    .s-ex-stats  { font-size: 11px; color: #7070a0; }
+    .s-notes { font-size: 12px; color: #555578; font-style: italic; margin-top: 9px; line-height: 1.45; }
+
+    /* ── SESSION EDIT ── */
+    .s-edit-bp { display: flex; align-items: center; gap: 8px; margin-bottom: 14px; }
+    .s-edit-bp-name { font-weight: 700; font-size: 14px; color: #e0e0f8; }
+    .edit-lbl { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.7px; color: #44446a; margin-bottom: 8px; margin-top: 14px; }
+    .edit-lbl:first-of-type { margin-top: 0; }
+    .edit-actions { display: flex; gap: 8px; margin-top: 14px; }
+    .btn-cancel-edit { flex: 1; padding: 9px; background: #1a1a32; border: 1px solid #2a2a48; border-radius: 8px; color: #7070a0; font-size: 13px; font-family: inherit; cursor: pointer; transition: all 0.12s; }
+    .btn-cancel-edit:hover { background: #222240; color: #b0b0e0; }
+    .btn-save-edit { flex: 2; padding: 9px; background: linear-gradient(135deg, #3030a0, #5050c8); border: none; border-radius: 8px; color: #fff; font-size: 13px; font-weight: 700; font-family: inherit; cursor: pointer; transition: opacity 0.12s; }
+    .btn-save-edit:hover { opacity: 0.88; }
+
+    /* ── ADD FORM ── */
+    .form-divider { border: none; border-top: 1px solid #1e1e32; margin-bottom: 20px; }
+    .form-title   { font-size: 14px; font-weight: 700; color: #b0b0d8; margin-bottom: 18px; }
+    .fgroup { margin-bottom: 16px; }
+    .flbl { display: block; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.7px; color: #44446a; margin-bottom: 8px; }
+    .flbl-hint { font-weight: 400; text-transform: none; letter-spacing: 0; color: #333352; }
+
+    select, textarea, input[type=text] {
+      width: 100%; font-family: inherit; font-size: 14px; color: #c8c8e8;
+      background: #191930; border: 1px solid #262644; border-radius: 9px;
+      outline: none; transition: border-color 0.15s;
+    }
+    select:focus, textarea:focus, input[type=text]:focus { border-color: #5050b8; }
+    select           { padding: 11px 14px; cursor: pointer; }
+    textarea         { padding: 11px 14px; resize: vertical; min-height: 68px; line-height: 1.5; }
+    input[type=text] { padding: 11px 14px; }
+
+    /* ── CHIPS ── */
+    .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+    .chip  { padding: 5px 12px; border-radius: 6px; font-size: 12px; border: 1px solid #252545; background: #191930; color: #7070a0; cursor: pointer; user-select: none; transition: all 0.12s; }
+    .chip:hover { border-color: #3e3e70; color: #c0c0e8; }
+    .chip.on    { background: #22226a; border-color: #5050cc; color: #d0d0ff; }
+
+    .cust-row { display: flex; gap: 7px; }
+    .cust-row input { flex: 1; }
+    .btn-add { padding: 0 14px; background: #1e1e40; border: 1px solid #2e2e55; border-radius: 9px; color: #6868a8; cursor: pointer; font-size: 13px; font-family: inherit; white-space: nowrap; transition: all 0.12s; }
+    .btn-add:hover { background: #2a2a5a; color: #b0b0e8; }
+
+    /* ── EXERCISE INPUT CARDS ── */
+    .ex-card { background: #131328; border: 1px solid #22224a; border-radius: 9px; padding: 12px 14px; margin-bottom: 10px; }
+    .ex-card-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 11px; }
+    .ex-card-name { font-size: 13px; font-weight: 700; color: #c8c8e8; }
+    .btn-rm-ex { background: none; border: none; color: #3a3a5a; cursor: pointer; font-size: 13px; padding: 3px 7px; border-radius: 4px; line-height: 1; transition: all 0.12s; }
+    .btn-rm-ex:hover { background: #2d101e; color: #ff6b7a; }
+
+    .sets-wrap { display: flex; flex-direction: column; gap: 6px; margin-bottom: 8px; }
+    .set-row { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
+    .set-label { font-size: 11px; font-weight: 600; color: #44446a; min-width: 38px; }
+    .set-reps  { width: 68px !important; padding: 7px 8px !important; font-size: 13px !important; border-radius: 6px !important; flex-shrink: 0; }
+    .set-unit  { font-size: 11px; color: #33334e; flex-shrink: 0; }
+    .inp-weight { width: 110px !important; padding: 7px 10px !important; font-size: 13px !important; border-radius: 6px !important; flex-shrink: 0; }
+    .btn-rm-set { background: none; border: 1px solid #252545; border-radius: 5px; color: #44446a; cursor: pointer; font-size: 15px; width: 26px; height: 26px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; transition: all 0.12s; line-height: 1; }
+    .btn-rm-set:hover { border-color: #f44; color: #ff6b7a; background: #2d101e; }
+
+    .btn-add-set { background: none; border: 1px dashed #222244; border-radius: 6px; color: #44446a; cursor: pointer; font-size: 12px; padding: 6px 12px; width: 100%; font-family: inherit; transition: all 0.12s; }
+    .btn-add-set:hover { border-color: #5050a0; color: #9090c8; background: #141430; }
+
+    /* ── CARDIO INPUT ── */
+    .cardio-flds { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .cardio-fld  { display: flex; flex-direction: column; gap: 5px; }
+    .cardio-fld-lbl { font-size: 11px; font-weight: 600; color: #44446a; }
+    .cardio-inp-wrap { display: flex; align-items: center; gap: 6px; }
+    .inp-cardio { flex: 1; padding: 8px 10px !important; font-size: 13px !important; border-radius: 6px !important; min-width: 0; }
+    .cardio-unit { font-size: 11px; color: #44446a; white-space: nowrap; flex-shrink: 0; }
+
+    /* ── SAVE BUTTON ── */
+    .btn-save { width: 100%; padding: 13px; background: linear-gradient(135deg, #4040c8 0%, #6868e8 100%); border: none; border-radius: 10px; color: #fff; font-size: 15px; font-weight: 700; font-family: inherit; cursor: pointer; margin-top: 6px; transition: opacity 0.12s, transform 0.1s; }
+    .btn-save:hover  { opacity: 0.88; transform: translateY(-1px); }
+    .btn-save:active { transform: translateY(0); }
+
+    /* ── RESPONSIVE ── */
+    @media (max-width: 580px) {
+      .app { padding: 22px 12px 60px; }
+      .app-title { font-size: 22px; }
+      .day { min-height: 68px; padding: 7px; }
+      .day-num { font-size: 12px; }
+      .stats { gap: 7px; }
+      .stat { padding: 12px 14px; }
+      .stat-val { font-size: 24px; }
+      .modal { border-radius: 14px; }
+      .cardio-flds { grid-template-columns: 1fr; }
+      .inp-weight { width: 90px !important; }
+    }
+  </style>
+</head>
+<body>
+
+<div class="app">
+  <div class="app-header">
+    <div class="app-header-left">
+      <div class="app-title">💪 Workout Tracker</div>
+      <div class="app-sub">Click any day to log or review your session</div>
+    </div>
+    <div class="header-btns">
+      <button class="btn-hdr" onclick="exportData()">⬇ Export</button>
+      <button class="btn-hdr" onclick="document.getElementById('importFile').click()">⬆ Import</button>
+      <input type="file" id="importFile" accept=".json" style="display:none" onchange="importData(event)">
+    </div>
+  </div>
+  <div class="stats"    id="stats"></div>
+  <div class="legend"   id="legend"></div>
+  <div class="cal-head" id="calHead"></div>
+  <div class="cal-grid" id="calGrid"></div>
+</div>
+
+<!-- Modal -->
+<div class="backdrop" id="backdrop" onclick="onBackdrop(event)">
+  <div class="modal">
+    <div class="modal-head">
+      <div class="mhead-bands" id="mheadBands"></div>
+      <div class="mhead-inner">
+        <div>
+          <div class="mdate-main" id="mDateMain"></div>
+          <div class="mdate-sub"  id="mDateSub"></div>
+        </div>
+        <button class="btn-x" onclick="closeModal()">✕</button>
+      </div>
+    </div>
+
+    <div class="modal-body">
+      <!-- Logged sessions -->
+      <div class="sessions-wrap">
+        <div class="sec-label">Logged Workouts</div>
+        <div id="sessionsList"></div>
+      </div>
+
+      <!-- Add form -->
+      <hr class="form-divider">
+      <div class="form-title">+ Log a workout</div>
+
+      <div class="fgroup">
+        <label class="flbl">Body Part</label>
+        <select id="bpSel" onchange="onBpChange()">
+          <option value="">Choose body part…</option>
+        </select>
+      </div>
+
+      <div id="exSection" style="display:none">
+        <div class="fgroup">
+          <label class="flbl">Exercises <span class="flbl-hint">— tap to add</span></label>
+          <div class="chips" id="exChips"></div>
+          <div class="cust-row">
+            <input type="text" id="custInp" placeholder="Add a custom exercise…">
+            <button class="btn-add" onclick="addCust()">+ Add</button>
+          </div>
+        </div>
+        <div id="exInputs"></div>
+      </div>
+
+      <div class="fgroup">
+        <label class="flbl">Notes <span class="flbl-hint">(optional)</span></label>
+        <textarea id="notesInp" placeholder="PRs, how it felt, anything notable…"></textarea>
+      </div>
+
+      <button class="btn-save" onclick="saveSession()">Save Session</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ═══════════════════════════════════════════════
+//  CONFIG
+// ═══════════════════════════════════════════════
+const BP = {
+  Chest:     { color: '#EF4444', exs: ['Bench Press','Incline Press','Decline Press','Dumbbell Flyes','Push-ups','Cable Crossover','Chest Dips','Pec Deck'] },
+  Back:      { color: '#38BDF8', exs: ['Pull-ups','Barbell Row','Lat Pulldown','Seated Cable Row','Deadlift','T-Bar Row','Face Pulls','Single-Arm Row'] },
+  Shoulders: { color: '#C084FC', exs: ['Overhead Press','Lateral Raises','Front Raises','Rear Delt Flyes','Arnold Press','Upright Row','Cable Lateral Raises','Shrugs'] },
+  Arms:      { color: '#FB923C', exs: ['Bicep Curls','Hammer Curls','Preacher Curls','Incline Curls','Tricep Pushdowns','Skull Crushers','Overhead Tricep Ext','Dips'] },
+  Legs:      { color: '#4ADE80', exs: ['Squats','Leg Press','Romanian Deadlift','Lunges','Leg Extension','Leg Curl','Calf Raises','Hack Squats'] },
+  Core:      { color: '#FACC15', exs: ['Plank','Crunches','Russian Twists','Hanging Leg Raises','Ab Wheel','Cable Crunch','Bicycle Crunches','Side Plank'] },
+  Cardio:    { color: '#94A3B8', exs: ['Zone 2 Run','Run HIIT','Cycling','Swimming','Jump Rope','Rowing Machine','Stair Climber','Elliptical'] }
+};
+
+// Cardio exercise field definitions
+const CARDIO_FIELDS = {
+  'Zone 2 Run': [
+    { key: 'speed', label: 'Speed',    unit: 'km/h' },
+    { key: 'time',  label: 'Time',     unit: 'min'  }
+  ],
+  'Run HIIT': [
+    { key: 'maxSpeed', label: 'Max Speed', unit: 'km/h' },
+    { key: 'minSpeed', label: 'Min Speed', unit: 'km/h' },
+    { key: 'pushTime', label: 'Push Time', unit: 'sec'  },
+    { key: 'restTime', label: 'Rest Time', unit: 'sec'  }
+  ],
+  'Cycling': [
+    { key: 'time', label: 'Time', unit: 'min' }
+  ],
+  '_default': [
+    { key: 'time', label: 'Duration', unit: 'min' }
+  ]
+};
+
+function getCardioFields(exName) {
+  return CARDIO_FIELDS[exName] || CARDIO_FIELDS['_default'];
+}
+
+// Body part type classification
+function getBpType(bp) {
+  if (bp === 'Cardio') return 'cardio';
+  if (bp === 'Core')   return 'core';
+  return 'regular';
+}
+
+const WDAYS  = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+const MSHORT = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+const MLONG  = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+const DLONG  = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+
+// ═══════════════════════════════════════════════
+//  STORAGE
+// ═══════════════════════════════════════════════
+const STORE_KEY = 'wt_data_v2';
+let data = {};
+
+function loadData() {
+  try { data = JSON.parse(localStorage.getItem(STORE_KEY) || '{}'); } catch(e) { data = {}; }
+}
+function saveData() {
+  try { localStorage.setItem(STORE_KEY, JSON.stringify(data)); } catch(e) {}
+}
+
+// ═══════════════════════════════════════════════
+//  DATE HELPERS
+// ═══════════════════════════════════════════════
+function today() { const n = new Date(); return new Date(n.getFullYear(), n.getMonth(), n.getDate()); }
+function dkey(d) { return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; }
+function fromKey(k) { const [y,m,d] = k.split('-').map(Number); return new Date(y, m-1, d); }
+
+function calDays() {
+  const t = today();
+  const dow = t.getDay();
+  const sinceMonday = (dow + 6) % 7;
+  const start = new Date(t);
+  start.setDate(t.getDate() - sinceMonday - 21);
+  return Array.from({length: 28}, (_, i) => {
+    const d = new Date(start); d.setDate(start.getDate() + i); return d;
+  });
+}
+
+function bpsForDay(key) {
+  return [...new Set((data[key] || []).map(s => s.bp))];
+}
+
+// ═══════════════════════════════════════════════
+//  CALENDAR RENDERS
+// ═══════════════════════════════════════════════
+function renderLegend() {
+  document.getElementById('legend').innerHTML = Object.entries(BP)
+    .map(([name,{color}]) => `<div class="leg-item"><div class="leg-dot" style="background:${color}"></div>${name}</div>`)
+    .join('');
+}
+
+function renderStats() {
+  const t = today(); const days = calDays();
+  const active28 = days.filter(d => (data[dkey(d)] || []).length > 0).length;
+  let streak = 0; const chk = new Date(t);
+  while ((data[dkey(chk)] || []).length > 0) { streak++; chk.setDate(chk.getDate()-1); }
+  const sinceMonday = (t.getDay()+6)%7;
+  const wkStart = new Date(t); wkStart.setDate(t.getDate() - sinceMonday);
+  let thisWeek = 0;
+  for (let i = 0; i <= sinceMonday; i++) {
+    const d = new Date(wkStart); d.setDate(wkStart.getDate()+i);
+    if ((data[dkey(d)] || []).length > 0) thisWeek++;
+  }
+  document.getElementById('stats').innerHTML = `
+    <div class="stat"><div class="stat-val">${streak}${streak>=3?' 🔥':''}</div><div class="stat-lbl">Day streak</div></div>
+    <div class="stat"><div class="stat-val">${thisWeek}</div><div class="stat-lbl">This week</div></div>
+    <div class="stat"><div class="stat-val">${active28}</div><div class="stat-lbl">Active days (28d)</div></div>`;
+}
+
+function renderCalendar() {
+  const t = today(); const tk = dkey(t); const days = calDays();
+  document.getElementById('calHead').innerHTML = WDAYS.map(d => `<div class="wday">${d}</div>`).join('');
+  document.getElementById('calGrid').innerHTML = days.map(d => {
+    const k = dkey(d), bps = bpsForDay(k), hasWork = bps.length > 0;
+    const isToday = k === tk, isFuture = d > t;
+    let cls = 'day'; if (isToday) cls += ' is-today'; if (isFuture) cls += ' is-future'; if (hasWork) cls += ' has-workout';
+    const bands = hasWork ? `<div class="day-bands">${bps.map(bp=>`<div class="day-band" style="background:${BP[bp]?.color||'#888'}"></div>`).join('')}</div>` : '';
+    const moEl  = d.getDate()===1 ? `<span class="day-mo">${MSHORT[d.getMonth()]}</span>` : '';
+    const tags  = hasWork ? `<div class="day-tags">${bps.map(bp=>`<span class="day-tag">${bp.slice(0,3)}</span>`).join('')}</div>` : '';
+    const click = isFuture ? '' : `onclick="openModal('${k}')"`;
+    return `<div class="${cls}" ${click}>${bands}<div class="day-top"><span class="day-num">${d.getDate()}</span>${moEl}</div>${tags}</div>`;
+  }).join('');
+}
+
+// ═══════════════════════════════════════════════
+//  MODAL OPEN / CLOSE
+// ═══════════════════════════════════════════════
+let curKey = null, curBp = '', editState = null;
+
+// Add-form exercise state: [{ name, numSets, setValues:[{reps,weight}], cardioValues:{} }]
+let exData = [], custExs = [];
+
+function openModal(key) {
+  curKey = key; curBp = ''; exData = []; custExs = []; editState = null;
+  const d = fromKey(key);
+  document.getElementById('mDateMain').textContent = `${MLONG[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()}`;
+  document.getElementById('mDateSub').textContent  = DLONG[d.getDay()];
+  updateModalBands();
+  // Reset add form
+  const sel = document.getElementById('bpSel');
+  sel.innerHTML = '<option value="">Choose body part…</option>' + Object.keys(BP).map(n=>`<option value="${n}">${n}</option>`).join('');
+  sel.value = '';
+  document.getElementById('exSection').style.display = 'none';
+  document.getElementById('exInputs').innerHTML = '';
+  document.getElementById('custInp').value = '';
+  document.getElementById('notesInp').value = '';
+  renderSessions();
+  document.getElementById('backdrop').classList.add('open');
+}
+
+function updateModalBands() {
+  const bps = bpsForDay(curKey);
+  document.getElementById('mheadBands').innerHTML =
+    bps.map(bp => `<div class="mhead-band" style="background:${BP[bp]?.color||'#888'}"></div>`).join('');
+}
+
+function closeModal() {
+  document.getElementById('backdrop').classList.remove('open');
+  curKey = null; editState = null;
+}
+function onBackdrop(e) { if (e.target.id === 'backdrop') closeModal(); }
+
+// ═══════════════════════════════════════════════
+//  SESSIONS — VIEW + EDIT
+// ═══════════════════════════════════════════════
+function renderSessions() {
+  const sessions = data[curKey] || [];
+  const el = document.getElementById('sessionsList');
+  if (!sessions.length) { el.innerHTML = '<div class="empty-msg">Nothing logged yet — add a workout below.</div>'; return; }
+
+  el.innerHTML = sessions.map(s => {
+    const color = BP[s.bp]?.color || '#888';
+    const bpT   = getBpType(s.bp);
+    const isEd  = editState?.sessionId === s.id;
+    // Back-compat: old data used s.exs array of strings
+    const exercises = s.exercises || (s.exs ? s.exs.map(n => ({ name: n, sets: [] })) : []);
+
+    // Build view HTML for exercises
+    const exViewHtml = exercises.length ? exercises.map(ex => {
+      if (bpT === 'cardio') {
+        const fields = getCardioFields(ex.name);
+        const stat = fields.filter(f => ex.cardio?.[f.key]).map(f => `${f.label}: <b>${ex.cardio[f.key]}</b> ${f.unit}`).join(' &nbsp;·&nbsp; ');
+        return `<div class="s-ex"><div class="s-ex-n">${ex.name}</div>${stat ? `<div class="s-ex-stats">${stat}</div>` : ''}</div>`;
+      } else {
+        const pills = (ex.sets||[]).map((set,i) => {
+          const wt = (set.weight && bpT!=='core') ? ` · ${set.weight}` : '';
+          return `<span class="s-set-pill">Set ${i+1}: ${set.reps}r${wt}</span>`;
+        }).join('');
+        return `<div class="s-ex"><div class="s-ex-n">${ex.name}</div>${pills ? `<div class="s-set-pills">${pills}</div>` : ''}</div>`;
+      }
+    }).join('') : '<span style="font-size:12px;color:#333352">No exercises noted</span>';
+
+    const viewHtml = `
+      <div class="s-view" ${isEd ? 'style="display:none"' : ''}>
+        <div class="s-top">
+          <div class="s-bp"><div class="s-dot" style="background:${color}"></div>${s.bp}</div>
+          <div class="s-actions">
+            <button class="btn-icon edit" onclick="startEdit('${s.id}')" title="Edit">✏️</button>
+            <button class="btn-icon del"  onclick="delSession('${s.id}')" title="Delete">✕</button>
+          </div>
+        </div>
+        <div class="s-exercises">${exViewHtml}</div>
+        ${s.notes ? `<div class="s-notes">"${s.notes}"</div>` : ''}
+      </div>`;
+
+    const editHtml = `
+      <div class="s-edit" ${!isEd ? 'style="display:none"' : ''}>
+        <div class="s-edit-bp"><div class="s-dot" style="background:${color}"></div><span class="s-edit-bp-name">${s.bp}</span></div>
+        <div class="edit-lbl">Exercises <span class="flbl-hint">— tap to add/remove</span></div>
+        <div class="chips" id="editChips"></div>
+        <div class="cust-row" style="margin-bottom:10px">
+          <input type="text" id="editCustInp" placeholder="Add custom exercise…">
+          <button class="btn-add" onclick="addCustEdit()">+ Add</button>
+        </div>
+        <div id="editExInputs"></div>
+        <div class="edit-lbl" style="margin-top:12px">Notes</div>
+        <textarea id="editNotes" style="min-height:52px">${s.notes||''}</textarea>
+        <div class="edit-actions">
+          <button class="btn-cancel-edit" onclick="cancelEdit()">Cancel</button>
+          <button class="btn-save-edit" onclick="saveEdit('${s.id}')">Update Session</button>
+        </div>
+      </div>`;
+
+    return `<div class="session-card" id="sc-${s.id}">${viewHtml}${editHtml}</div>`;
+  }).join('');
+
+  if (editState) {
+    renderEditChips();
+    renderExCards('e', editState.exData, getBpType(editState.bp));
+    const ei = document.getElementById('editCustInp');
+    if (ei) ei.addEventListener('keydown', ev => { if (ev.key==='Enter') addCustEdit(); });
+  }
+}
+
+// ═══════════════════════════════════════════════
+//  EDIT SESSION
+// ═══════════════════════════════════════════════
+function startEdit(sessionId) {
+  const s = (data[curKey]||[]).find(x => x.id === sessionId);
+  if (!s) return;
+  const bpT = getBpType(s.bp);
+  const exercises = s.exercises || (s.exs ? s.exs.map(n=>({name:n,sets:[]})) : []);
+  const edExData = exercises.map(ex => {
+    if (bpT === 'cardio') {
+      return { name: ex.name, cardioValues: {...(ex.cardio||{})} };
+    } else {
+      const sets = ex.sets || [];
+      return { name: ex.name, numSets: sets.length||1, setValues: sets.map(sv=>({reps:sv.reps||'8',weight:sv.weight||''})) };
+    }
+  });
+  editState = { sessionId, bp: s.bp, exData: edExData, custExs: [] };
+  renderSessions();
+}
+
+function cancelEdit() { editState = null; renderSessions(); }
+
+function renderEditChips() {
+  if (!editState) return;
+  const s = (data[curKey]||[]).find(x=>x.id===editState.sessionId);
+  if (!s) return;
+  const bp = s.bp, all = [...(BP[bp]?.exs||[]), ...editState.custExs];
+  const selNames = new Set(editState.exData.map(e=>e.name));
+  const el = document.getElementById('editChips');
+  if (!el) return;
+  el.innerHTML = all.map(ex => {
+    const safe = esc(ex);
+    return `<span class="chip${selNames.has(ex)?' on':''}" onclick="toggleEditEx(this,'${safe}')">${ex}</span>`;
+  }).join('');
+}
+
+function toggleEditEx(el, name) {
+  if (!editState) return;
+  const idx = editState.exData.findIndex(e => e.name === name);
+  if (idx >= 0) {
+    syncExCards('e', editState.exData, getBpType(editState.bp));
+    editState.exData.splice(idx, 1);
+    el.classList.remove('on');
+  } else {
+    const bpT = getBpType(editState.bp);
+    editState.exData.push(newExEntry(name, bpT));
+    el.classList.add('on');
+  }
+  renderExCards('e', editState.exData, getBpType(editState.bp));
+}
+
+function addCustEdit() {
+  if (!editState) return;
+  const inp = document.getElementById('editCustInp');
+  const val = inp.value.trim(); if (!val) return;
+  editState.custExs.push(val);
+  const bpT = getBpType(editState.bp);
+  editState.exData.push(newExEntry(val, bpT));
+  inp.value = '';
+  renderEditChips();
+  renderExCards('e', editState.exData, bpT);
+}
+
+function saveEdit(sessionId) {
+  if (!editState || !data[curKey]) return;
+  const idx = data[curKey].findIndex(s => s.id === sessionId);
+  if (idx === -1) return;
+  syncExCards('e', editState.exData, getBpType(editState.bp));
+  const notes = (document.getElementById('editNotes')?.value||'').trim();
+  const bpT = getBpType(editState.bp);
+  data[curKey][idx] = { ...data[curKey][idx], exercises: buildExercises(editState.exData, bpT), notes };
+  saveData(); editState = null;
+  renderSessions(); updateModalBands(); renderCalendar();
+}
+
+// ═══════════════════════════════════════════════
+//  ADD FORM
+// ═══════════════════════════════════════════════
+function onBpChange() {
+  curBp = document.getElementById('bpSel').value;
+  exData = []; custExs = [];
+  document.getElementById('custInp').value = '';
+  document.getElementById('exInputs').innerHTML = '';
+  if (!curBp) { document.getElementById('exSection').style.display = 'none'; return; }
+  document.getElementById('exSection').style.display = 'block';
+  renderChips();
+}
+
+function renderChips() {
+  const all = [...(BP[curBp]?.exs||[]), ...custExs];
+  const selNames = new Set(exData.map(e=>e.name));
+  document.getElementById('exChips').innerHTML = all.map(ex => {
+    const safe = esc(ex);
+    return `<span class="chip${selNames.has(ex)?' on':''}" onclick="toggleEx(this,'${safe}')">${ex}</span>`;
+  }).join('');
+}
+
+function toggleEx(el, name) {
+  const idx = exData.findIndex(e => e.name === name);
+  if (idx >= 0) {
+    syncExCards('f', exData, getBpType(curBp));
+    exData.splice(idx, 1);
+    el.classList.remove('on');
+  } else {
+    exData.push(newExEntry(name, getBpType(curBp)));
+    el.classList.add('on');
+  }
+  renderExCards('f', exData, getBpType(curBp));
+}
+
+function addCust() {
+  const inp = document.getElementById('custInp');
+  const val = inp.value.trim(); if (!val) return;
+  custExs.push(val);
+  exData.push(newExEntry(val, getBpType(curBp)));
+  inp.value = '';
+  renderChips();
+  renderExCards('f', exData, getBpType(curBp));
+}
+
+function saveSession() {
+  const bp = document.getElementById('bpSel').value;
+  if (!bp) { alert('Please choose a body part first.'); return; }
+  syncExCards('f', exData, getBpType(bp));
+  const notes = document.getElementById('notesInp').value.trim();
+  const id    = Date.now().toString(36) + Math.random().toString(36).slice(2);
+  if (!data[curKey]) data[curKey] = [];
+  data[curKey].push({ id, bp, exercises: buildExercises(exData, getBpType(bp)), notes });
+  saveData(); renderCalendar(); renderStats(); closeModal();
+}
+
+// ═══════════════════════════════════════════════
+//  EXERCISE CARD BUILDER  (shared by add + edit)
+//  prefix: 'f' = add form, 'e' = edit form
+// ═══════════════════════════════════════════════
+function newExEntry(name, bpType) {
+  if (bpType === 'cardio') return { name, cardioValues: {} };
+  return { name, numSets: 1, setValues: [{ reps: '8', weight: '' }] };
+}
+
+function renderExCards(prefix, arr, bpType) {
+  const containerId = prefix === 'f' ? 'exInputs' : 'editExInputs';
+  const el = document.getElementById(containerId);
+  if (!el) return;
+  el.innerHTML = arr.map((ex, i) => buildExCard(prefix, ex, i, bpType)).join('');
+}
+
+function buildExCard(prefix, ex, i, bpType) {
+  if (bpType === 'cardio') return buildCardioCard(prefix, ex, i);
+  const coreOnly = bpType === 'core';
+
+  const setsHtml = Array.from({length: ex.numSets}, (_, s) => {
+    const savedReps   = ex.setValues?.[s]?.reps   ?? '8';
+    const savedWeight = ex.setValues?.[s]?.weight  ?? '';
+    const repsOpts = Array.from({length:12},(_,j)=>{const v=j+4;return `<option value="${v}"${v==savedReps?' selected':''}>${v}</option>`;}).join('');
+    const wtInput  = coreOnly ? '' : `<input type="text" id="${prefix}-sw-${i}-${s}" class="inp-weight" placeholder="e.g. 80kg" value="${savedWeight}">`;
+    const rmBtn    = ex.numSets > 1 ? `<button class="btn-rm-set" onclick="rmSet('${prefix}',${i},${s})">−</button>` : '';
+    return `
+      <div class="set-row">
+        <span class="set-label">Set ${s+1}</span>
+        <select id="${prefix}-sr-${i}-${s}" class="set-reps">${repsOpts}</select>
+        <span class="set-unit">reps</span>
+        ${wtInput}${rmBtn}
+      </div>`;
+  }).join('');
+
+  return `
+    <div class="ex-card">
+      <div class="ex-card-head"><span class="ex-card-name">${ex.name}</span><button class="btn-rm-ex" onclick="rmEx('${prefix}',${i})">✕</button></div>
+      <div class="sets-wrap">${setsHtml}</div>
+      <button class="btn-add-set" onclick="addSet('${prefix}',${i})">+ Add Set</button>
+    </div>`;
+}
+
+function buildCardioCard(prefix, ex, i) {
+  const fields = getCardioFields(ex.name);
+  const fHtml = fields.map(f => {
+    const saved = ex.cardioValues?.[f.key] ?? '';
+    return `
+      <div class="cardio-fld">
+        <div class="cardio-fld-lbl">${f.label}</div>
+        <div class="cardio-inp-wrap">
+          <input type="text" id="${prefix}-ci-${i}-${f.key}" class="inp-cardio" placeholder="0" value="${saved}">
+          <span class="cardio-unit">${f.unit}</span>
+        </div>
+      </div>`;
+  }).join('');
+  return `
+    <div class="ex-card">
+      <div class="ex-card-head"><span class="ex-card-name">${ex.name}</span><button class="btn-rm-ex" onclick="rmEx('${prefix}',${i})">✕</button></div>
+      <div class="cardio-flds">${fHtml}</div>
+    </div>`;
+}
+
+// Sync DOM → state before re-renders that would destroy DOM
+function syncExCards(prefix, arr, bpType) {
+  arr.forEach((ex, i) => {
+    if (bpType === 'cardio') {
+      ex.cardioValues = {};
+      getCardioFields(ex.name).forEach(f => {
+        const el = document.getElementById(`${prefix}-ci-${i}-${f.key}`);
+        if (el) ex.cardioValues[f.key] = el.value;
+      });
+    } else {
+      ex.setValues = [];
+      for (let s = 0; s < ex.numSets; s++) {
+        const rEl = document.getElementById(`${prefix}-sr-${i}-${s}`);
+        const wEl = document.getElementById(`${prefix}-sw-${i}-${s}`);
+        ex.setValues.push({ reps: rEl?.value||'8', weight: wEl?.value||'' });
+      }
+    }
+  });
+}
+
+// Convert exData to saveable exercise objects
+function buildExercises(arr, bpType) {
+  return arr.map(ex => {
+    if (bpType === 'cardio') return { name: ex.name, cardio: {...(ex.cardioValues||{})} };
+    const sets = (ex.setValues||[]).map(sv =>
+      bpType === 'core' ? { reps: sv.reps } : { reps: sv.reps, weight: sv.weight }
+    );
+    return { name: ex.name, sets };
+  });
+}
+
+// ═══════════════════════════════════════════════
+//  SET / EXERCISE MANAGEMENT
+// ═══════════════════════════════════════════════
+function getArr(prefix) { return prefix === 'f' ? exData : editState?.exData || []; }
+function getBp(prefix)  { return prefix === 'f' ? curBp  : editState?.bp    || ''; }
+
+function addSet(prefix, exIdx) {
+  const arr = getArr(prefix), bp = getBp(prefix), bpT = getBpType(bp);
+  syncExCards(prefix, arr, bpT);
+  arr[exIdx].numSets++;
+  renderExCards(prefix, arr, bpT);
+}
+
+function rmSet(prefix, exIdx, setIdx) {
+  const arr = getArr(prefix), bp = getBp(prefix), bpT = getBpType(bp);
+  syncExCards(prefix, arr, bpT);
+  if (arr[exIdx].numSets <= 1) return;
+  arr[exIdx].setValues?.splice(setIdx, 1);
+  arr[exIdx].numSets--;
+  renderExCards(prefix, arr, bpT);
+}
+
+function rmEx(prefix, exIdx) {
+  const arr = getArr(prefix), bp = getBp(prefix), bpT = getBpType(bp);
+  const removedName = arr[exIdx].name;
+  arr.splice(exIdx, 1);
+  renderExCards(prefix, arr, bpT);
+  // Deselect chip
+  if (prefix === 'f') renderChips();
+  else renderEditChips();
+}
+
+// ═══════════════════════════════════════════════
+//  DELETE SESSION
+// ═══════════════════════════════════════════════
+function delSession(id) {
+  if (!data[curKey]) return;
+  data[curKey] = data[curKey].filter(s => s.id !== id);
+  if (!data[curKey].length) delete data[curKey];
+  saveData();
+  if (editState?.sessionId === id) editState = null;
+  renderSessions(); updateModalBands(); renderCalendar(); renderStats();
+}
+
+// ═══════════════════════════════════════════════
+//  EXPORT / IMPORT
+// ═══════════════════════════════════════════════
+function exportData() {
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href     = url;
+  a.download = `workout-data-${new Date().toISOString().slice(0,10)}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function importData(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = e => {
+    try {
+      const imported = JSON.parse(e.target.result);
+      if (typeof imported !== 'object' || Array.isArray(imported)) throw new Error();
+      // Merge: imported entries overwrite existing ones by date key
+      Object.assign(data, imported);
+      saveData();
+      renderStats();
+      renderCalendar();
+      alert(`Imported successfully! ${Object.keys(imported).length} days loaded.`);
+    } catch {
+      alert('Could not read file — make sure it\'s a valid workout export.');
+    }
+    event.target.value = ''; // reset so same file can be re-imported
+  };
+  reader.readAsText(file);
+}
+
+// ═══════════════════════════════════════════════
+//  UTILS
+// ═══════════════════════════════════════════════
+function esc(s) { return s.replace(/\\/g,'\\\\').replace(/'/g,"\\'"); }
+
+// ═══════════════════════════════════════════════
+//  INIT
+// ═══════════════════════════════════════════════
+document.getElementById('custInp').addEventListener('keydown', e => { if (e.key==='Enter') addCust(); });
+
+loadData(); renderLegend(); renderStats(); renderCalendar();
+</script>
+</body>
+</html>
