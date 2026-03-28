@@ -41,19 +41,29 @@
     .leg-dot  { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
 
     /* ── CALENDAR ── */
+    /* ── CALENDAR NAV ── */
+    .cal-nav { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
+    .cal-month-label { font-size: 17px; font-weight: 700; color: #c0c0e0; letter-spacing: -0.3px; }
+    .cal-nav-btn { background: #111120; border: 1px solid #1e1e34; border-radius: 9px; color: #7070a0; cursor: pointer; font-size: 22px; width: 36px; height: 36px; display: flex; align-items: center; justify-content: center; transition: all 0.12s; line-height: 1; padding: 0; font-family: inherit; }
+    .cal-nav-btn:hover:not(:disabled) { background: #1e1e38; border-color: #3a3a60; color: #c0c0e0; }
+    .cal-nav-btn:disabled { opacity: 0.25; cursor: default; }
+    .cal-today-btn { font-size: 12px; font-weight: 600; width: auto; padding: 0 12px; }
+
     .cal-head { display: grid; grid-template-columns: repeat(7, 1fr); gap: 7px; margin-bottom: 7px; }
     .wday { text-align: center; font-size: 11px; font-weight: 700; color: #333350; text-transform: uppercase; letter-spacing: 0.5px; }
     .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 7px; }
 
     .day {
       background: #111120; border: 1px solid #1a1a2c; border-radius: 10px;
-      padding: 10px; min-height: 90px; cursor: pointer; position: relative;
+      padding: 10px; min-height: 82px; cursor: pointer; position: relative;
       overflow: hidden; display: flex; flex-direction: column;
       transition: transform 0.12s, border-color 0.12s, box-shadow 0.12s;
     }
     .day:hover    { transform: translateY(-2px); border-color: #2e2e4a; box-shadow: 0 6px 20px rgba(0,0,0,0.5); }
     .day.is-today { border-color: #5a5adc; box-shadow: 0 0 0 1px #5a5adc; }
-    .day.is-future { opacity: 0.25; pointer-events: none; }
+    .day.is-future { opacity: 0.55; }
+    .day.other-month { opacity: 0.18; pointer-events: none; }
+    .day.is-beyond { opacity: 0.1; pointer-events: none; }
 
     .day-bands { position: absolute; inset: 0; display: flex; flex-direction: column; }
     .day-band  { flex: 1; opacity: 0.82; }
@@ -207,8 +217,9 @@
       <input type="file" id="importFile" accept=".json" style="display:none" onchange="importData(event)">
     </div>
   </div>
-  <div class="stats"    id="stats"></div>
-  <div class="legend"   id="legend"></div>
+  <div class="stats"  id="stats"></div>
+  <div class="legend" id="legend"></div>
+  <div class="cal-nav" id="calNav"></div>
   <div class="cal-head" id="calHead"></div>
   <div class="cal-grid" id="calGrid"></div>
 </div>
@@ -274,9 +285,9 @@
 const BP = {
   Chest:     { color: '#EF4444', exs: ['Bench Press','Incline Press','Decline Press','Dumbbell Flyes','Push-ups','Cable Crossover','Chest Dips','Pec Deck'] },
   Back:      { color: '#38BDF8', exs: ['Pull-ups','Barbell Row','Lat Pulldown','Seated Cable Row','Deadlift','T-Bar Row','Face Pulls','Single-Arm Row'] },
-  Shoulders: { color: '#C084FC', exs: ['Overhead Press','Lateral Raises','Front Raises','Rear Delt Flyes','Arnold Press','Upright Row','Cable Lateral Raises','Shrugs'] },
+  Shoulders: { color: '#C084FC', exs: ['Overhead Press','Seated DB Press','Lateral Raises','Front Raises','Rear Delt Flyes','Arnold Press','Upright Row','Cable Lateral Raises','Shrugs'] },
   Arms:      { color: '#FB923C', exs: ['Bicep Curls','Hammer Curls','Preacher Curls','Incline Curls','Tricep Pushdowns','Skull Crushers','Overhead Tricep Ext','Dips'] },
-  Legs:      { color: '#4ADE80', exs: ['Squats','Leg Press','Romanian Deadlift','Lunges','Leg Extension','Leg Curl','Calf Raises','Hack Squats'] },
+  Legs:      { color: '#4ADE80', exs: ['Squats','Leg Press','Romanian Deadlift','Lunges','Leg Extension','Leg Curl','Calf Raises','Hack Squats','Bulgarian Split Squat','Hip Thrust'] },
   Core:      { color: '#FACC15', exs: ['Plank','Crunches','Russian Twists','Hanging Leg Raises','Ab Wheel','Cable Crunch','Bicycle Crunches','Side Plank'] },
   Cardio:    { color: '#94A3B8', exs: ['Zone 2 Run','Run HIIT','Cycling','Swimming','Jump Rope','Rowing Machine','Stair Climber','Elliptical'] }
 };
@@ -337,15 +348,44 @@ function today() { const n = new Date(); return new Date(n.getFullYear(), n.getM
 function dkey(d) { return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; }
 function fromKey(k) { const [y,m,d] = k.split('-').map(Number); return new Date(y, m-1, d); }
 
+// Month-view navigation state
+let viewYear = 0, viewMonth = 0;
+
 function calDays() {
-  const t = today();
-  const dow = t.getDay();
-  const sinceMonday = (dow + 6) % 7;
-  const start = new Date(t);
-  start.setDate(t.getDate() - sinceMonday - 21);
-  return Array.from({length: 28}, (_, i) => {
-    const d = new Date(start); d.setDate(start.getDate() + i); return d;
+  // First day of viewed month, find its weekday (Mon-first)
+  const firstDay = new Date(viewYear, viewMonth, 1);
+  const startOffset = (firstDay.getDay() + 6) % 7; // days to show from prev month
+  const startDate = new Date(firstDay);
+  startDate.setDate(1 - startOffset);
+  // Always show enough rows to cover the full month
+  const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
+  const rows = Math.ceil((startOffset + daysInMonth) / 7);
+  return Array.from({length: rows * 7}, (_, i) => {
+    const d = new Date(startDate); d.setDate(startDate.getDate() + i); return d;
   });
+}
+
+function canGoNext() {
+  const t = today(), tM = t.getMonth(), tY = t.getFullYear();
+  const maxM = (tM + 8) % 12;
+  const maxY = tY + Math.floor((tM + 8) / 12);
+  return viewYear < maxY || (viewYear === maxY && viewMonth < maxM);
+}
+
+function goPrev() {
+  if (viewMonth === 0) { viewYear--; viewMonth = 11; } else viewMonth--;
+  renderCalendar();
+}
+
+function goNext() {
+  if (!canGoNext()) return;
+  if (viewMonth === 11) { viewYear++; viewMonth = 0; } else viewMonth++;
+  renderCalendar();
+}
+
+function goToToday() {
+  const t = today(); viewYear = t.getFullYear(); viewMonth = t.getMonth();
+  renderCalendar();
 }
 
 function bpsForDay(key) {
@@ -362,8 +402,10 @@ function renderLegend() {
 }
 
 function renderStats() {
-  const t = today(); const days = calDays();
-  const active28 = days.filter(d => (data[dkey(d)] || []).length > 0).length;
+  const t = today();
+  // Always count last 28 days regardless of which month is being viewed
+  const last28 = Array.from({length:28},(_,i)=>{const d=new Date(t);d.setDate(t.getDate()-27+i);return d;});
+  const active28 = last28.filter(d => (data[dkey(d)] || []).length > 0).length;
   let streak = 0; const chk = new Date(t);
   while ((data[dkey(chk)] || []).length > 0) { streak++; chk.setDate(chk.getDate()-1); }
   const sinceMonday = (t.getDay()+6)%7;
@@ -381,16 +423,38 @@ function renderStats() {
 
 function renderCalendar() {
   const t = today(); const tk = dkey(t); const days = calDays();
+  const tMax = new Date(t.getFullYear(), t.getMonth() + 8, t.getDate()); // 8-month ceiling
+  const isCurrentMonth = viewYear === t.getFullYear() && viewMonth === t.getMonth();
+
+  // Navigation bar
+  document.getElementById('calNav').innerHTML = `
+    <button class="cal-nav-btn" onclick="goPrev()">&#8249;</button>
+    <span class="cal-month-label">${MLONG[viewMonth]} ${viewYear}</span>
+    <div style="display:flex;gap:7px">
+      ${!isCurrentMonth ? `<button class="cal-nav-btn cal-today-btn" onclick="goToToday()">Today</button>` : '<span style="width:36px"></span>'}
+      <button class="cal-nav-btn" onclick="goNext()" ${!canGoNext() ? 'disabled' : ''}>&#8250;</button>
+    </div>`;
+
   document.getElementById('calHead').innerHTML = WDAYS.map(d => `<div class="wday">${d}</div>`).join('');
+
   document.getElementById('calGrid').innerHTML = days.map(d => {
     const k = dkey(d), bps = bpsForDay(k), hasWork = bps.length > 0;
-    const isToday = k === tk, isFuture = d > t;
-    let cls = 'day'; if (isToday) cls += ' is-today'; if (isFuture) cls += ' is-future'; if (hasWork) cls += ' has-workout';
+    const isToday      = k === tk;
+    const isOtherMonth = d.getMonth() !== viewMonth;
+    const isBeyond     = d > tMax;
+    const isFuture     = d > t && !isBeyond && !isOtherMonth;
+
+    let cls = 'day';
+    if (isToday)      cls += ' is-today';
+    if (hasWork)      cls += ' has-workout';
+    if (isOtherMonth) cls += ' other-month';
+    else if (isBeyond) cls += ' is-beyond';
+    else if (isFuture) cls += ' is-future';
+
     const bands = hasWork ? `<div class="day-bands">${bps.map(bp=>`<div class="day-band" style="background:${BP[bp]?.color||'#888'}"></div>`).join('')}</div>` : '';
-    const moEl  = d.getDate()===1 ? `<span class="day-mo">${MSHORT[d.getMonth()]}</span>` : '';
     const tags  = hasWork ? `<div class="day-tags">${bps.map(bp=>`<span class="day-tag">${bp.slice(0,3)}</span>`).join('')}</div>` : '';
-    const click = isFuture ? '' : `onclick="openModal('${k}')"`;
-    return `<div class="${cls}" ${click}>${bands}<div class="day-top"><span class="day-num">${d.getDate()}</span>${moEl}</div>${tags}</div>`;
+    const click = (!isOtherMonth && !isBeyond) ? `onclick="openModal('${k}')"` : '';
+    return `<div class="${cls}" ${click}>${bands}<div class="day-top"><span class="day-num">${d.getDate()}</span></div>${tags}</div>`;
   }).join('');
 }
 
@@ -818,6 +882,7 @@ function esc(s) { return s.replace(/\\/g,'\\\\').replace(/'/g,"\\'"); }
 // ═══════════════════════════════════════════════
 document.getElementById('custInp').addEventListener('keydown', e => { if (e.key==='Enter') addCust(); });
 
+const _t = today(); viewYear = _t.getFullYear(); viewMonth = _t.getMonth();
 loadData(); renderLegend(); renderStats(); renderCalendar();
 </script>
 </body>
