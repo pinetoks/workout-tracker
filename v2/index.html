@@ -802,12 +802,12 @@ function renderStats() {
     if (workoutData[k] && getBodyParts(workoutData[k]).includes('cardio')) cardio28++;
   }
 
-  // This week: Mon → today
-  const sinceMonday = (now.getDay() + 6) % 7;
+  // This week: Sunday → today
+  const sinceSunday = now.getDay(); // 0=Sun, 1=Mon, …
   let thisWeek = 0;
-  for (let i = 0; i <= sinceMonday; i++) {
+  for (let i = 0; i <= sinceSunday; i++) {
     const d = new Date(now);
-    d.setDate(now.getDate() - sinceMonday + i);
+    d.setDate(now.getDate() - sinceSunday + i);
     const k = `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
     if (workoutData[k] && getBodyParts(workoutData[k]).length > 0) thisWeek++;
   }
