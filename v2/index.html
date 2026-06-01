@@ -98,7 +98,7 @@
       position: relative;
       overflow: hidden;
       padding: 7px;
-      height: 56px;
+      height: 66px;
     }
     .day-cell:active { transform: scale(0.94); }
     .day-cell.other-month { opacity: 0; pointer-events: none; }
@@ -1223,27 +1223,37 @@ function renderChart(sessions, metric) {
 
   const values = sessions.map(s => {
     if (metric === 'weight') {
-      return Math.max(...s.sets.map(st => +st.weight));
+      const ws = s.sets.map(st => +st.weight).filter(w => isFinite(w) && w > 0);
+      return ws.length ? Math.max(...ws) : null;
     } else {
-      return s.sets.reduce((sum, st) => sum + (+st.reps * +st.weight), 0);
+      const vol = s.sets.reduce((sum, st) => {
+        const r = +st.reps, w = +st.weight;
+        return sum + (isFinite(r) && isFinite(w) ? r * w : 0);
+      }, 0);
+      return vol > 0 ? vol : null;
     }
   });
+
+  const validPairs = sessions.map((s, i) => ({ s, v: values[i] })).filter(p => p.v !== null);
+  if (validPairs.length === 0) return '<div class="chart-empty">No valid data to display</div>';
+  const filteredSessions = validPairs.map(p => p.s);
+  const filteredValues  = validPairs.map(p => p.v);
 
   const W = 320, H = 170;
   const pad = { t: 14, r: 12, b: 26, l: 38 };
   const cW = W - pad.l - pad.r;
   const cH = H - pad.t - pad.b;
 
-  const maxV = Math.max(...values);
-  const minV = Math.min(...values);
+  const maxV = Math.max(...filteredValues);
+  const minV = Math.min(...filteredValues);
   const spread = maxV - minV || maxV * 0.1 || 1;
   const lo = Math.max(0, minV - spread * 0.15);
   const hi = maxV + spread * 0.15;
   const range = hi - lo;
 
-  const pts = sessions.map((s, i) => ({
-    x: pad.l + (sessions.length === 1 ? cW / 2 : (i / (sessions.length - 1)) * cW),
-    y: pad.t + cH - ((values[i] - lo) / range) * cH,
+  const pts = filteredSessions.map((s, i) => ({
+    x: pad.l + (filteredSessions.length === 1 ? cW / 2 : (i / (filteredSessions.length - 1)) * cW),
+    y: pad.t + cH - ((filteredValues[i] - lo) / range) * cH,
     label: s.shortDate,
   }));
 
