@@ -537,6 +537,23 @@
       margin-top: 4px;
     }
 
+    /* ── Cardio protocol fields ── */
+    .cardio-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+    .cardio-field { display: flex; flex-direction: column; gap: 4px; }
+    .cardio-field .set-header-label { text-align: left; }
+    .cardio-total {
+      font-size: 12px; color: var(--text2);
+      padding: 6px 0 2px;
+      border-top: 1px solid var(--border);
+      margin-top: 4px;
+    }
+    .picker-item-blurb { font-size: 11px; color: var(--text2); margin-top: 2px; }
+
     #toolbar {
       display: flex;
       gap: 8px;
@@ -714,6 +731,102 @@ const PRESETS = {
 };
 
 const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+
+// ─────────────────────────────────────────────
+// CARDIO PROTOCOLS (Treadmill / 4x4 Norwegian / HIIT sprint)
+// ─────────────────────────────────────────────
+
+const CARDIO_PROTOCOLS = [
+  {
+    type: 'treadmill',
+    label: 'Treadmill',
+    blurb: 'Steady state — set slope, speed and time.',
+    preset: { type: 'treadmill', slope: 1, speed: 6, speedUnit: 'mph', minutes: 30 },
+  },
+  {
+    type: 'norwegian4x4',
+    label: '4x4 Norwegian',
+    blurb: '4 min hard, 3 min easy, x4.',
+    preset: { type: 'norwegian4x4', maxSpeed: 9, lowSpeed: 4, speedUnit: 'mph', maxTime: 4, lowTime: 3, cycles: 4, unit: 'min', slope: 1 },
+  },
+  {
+    type: 'hiitSprint',
+    label: 'HIIT (Sprint)',
+    blurb: 'Short all-out efforts, longer recoveries.',
+    preset: { type: 'hiitSprint', maxSpeed: 12, lowSpeed: 3.5, speedUnit: 'mph', maxTime: 30, lowTime: 90, cycles: 8, unit: 'sec', slope: 0 },
+  },
+];
+
+function isIntervalCardio(c) { return c.type === 'norwegian4x4' || c.type === 'hiitSprint'; }
+
+/** Total session length in minutes, work plus recovery. */
+function cardioTotalMinutes(c) {
+  if (!isIntervalCardio(c)) return c.minutes;
+  const per = c.maxTime + c.lowTime;
+  const mins = c.unit === 'sec' ? (per * c.cycles) / 60 : per * c.cycles;
+  return Math.round(mins * 10) / 10;
+}
+
+/** Minutes spent in the hard intervals only. */
+function cardioWorkMinutes(c) {
+  if (!isIntervalCardio(c)) return c.minutes;
+  const mins = c.unit === 'sec' ? (c.maxTime * c.cycles) / 60 : c.maxTime * c.cycles;
+  return Math.round(mins * 10) / 10;
+}
+
+/** Inline field markup for a cardio-protocol exercise card. */
+function cardioFieldsHTML(c, ei) {
+  const speedToggle = `
+    <div class="cardio-field"><span class="set-header-label">Speed unit</span>
+      <div class="unit-toggle">
+        <button class="${c.speedUnit !== 'km/h' ? 'active' : ''}" data-cardio-ex="${ei}" data-cu="mph">mph</button>
+        <button class="${c.speedUnit === 'km/h' ? 'active' : ''}" data-cardio-ex="${ei}" data-cu="km/h">km/h</button>
+      </div>
+    </div>`;
+
+  if (!isIntervalCardio(c)) {
+    return `
+      <div class="cardio-grid">
+        <div class="cardio-field"><span class="set-header-label">Slope %</span>
+          <input class="set-input" type="number" inputmode="decimal" step="0.5" min="0" value="${c.slope}" data-cardio-ex="${ei}" data-cf="slope"></div>
+        <div class="cardio-field"><span class="set-header-label">Speed (${c.speedUnit})</span>
+          <input class="set-input" type="number" inputmode="decimal" step="0.1" min="0" value="${c.speed}" data-cardio-ex="${ei}" data-cf="speed"></div>
+        <div class="cardio-field"><span class="set-header-label">Time (min)</span>
+          <input class="set-input" type="number" inputmode="decimal" step="1" min="0" value="${c.minutes}" data-cardio-ex="${ei}" data-cf="minutes"></div>
+      </div>
+      <div class="cardio-grid" style="grid-template-columns:1fr">${speedToggle}</div>
+      <p class="cardio-total">${cardioTotalMinutes(c)} min total</p>`;
+  }
+
+  return `
+    <div class="cardio-grid">
+      <div class="cardio-field"><span class="set-header-label">Max speed</span>
+        <input class="set-input" type="number" inputmode="decimal" step="0.1" min="0" value="${c.maxSpeed}" data-cardio-ex="${ei}" data-cf="maxSpeed"></div>
+      <div class="cardio-field"><span class="set-header-label">Low speed</span>
+        <input class="set-input" type="number" inputmode="decimal" step="0.1" min="0" value="${c.lowSpeed}" data-cardio-ex="${ei}" data-cf="lowSpeed"></div>
+      <div class="cardio-field"><span class="set-header-label">Slope %</span>
+        <input class="set-input" type="number" inputmode="decimal" step="0.5" min="0" value="${c.slope ?? 0}" data-cardio-ex="${ei}" data-cf="slope"></div>
+    </div>
+    <div class="cardio-grid">
+      <div class="cardio-field"><span class="set-header-label">Max time (${c.unit})</span>
+        <input class="set-input" type="number" inputmode="decimal" step="1" min="0" value="${c.maxTime}" data-cardio-ex="${ei}" data-cf="maxTime"></div>
+      <div class="cardio-field"><span class="set-header-label">Low time (${c.unit})</span>
+        <input class="set-input" type="number" inputmode="decimal" step="1" min="0" value="${c.lowTime}" data-cardio-ex="${ei}" data-cf="lowTime"></div>
+      <div class="cardio-field"><span class="set-header-label">Cycles</span>
+        <input class="set-input" type="number" inputmode="decimal" step="1" min="1" value="${c.cycles}" data-cardio-ex="${ei}" data-cf="cycles"></div>
+    </div>
+    <div class="cardio-grid">
+      ${speedToggle}
+      <div class="cardio-field"><span class="set-header-label">Interval unit</span>
+        <div class="unit-toggle">
+          <button class="${c.unit !== 'sec' ? 'active' : ''}" data-cardio-ex="${ei}" data-iu="min">min</button>
+          <button class="${c.unit === 'sec' ? 'active' : ''}" data-cardio-ex="${ei}" data-iu="sec">sec</button>
+        </div>
+      </div>
+      <div></div>
+    </div>
+    <p class="cardio-total">${cardioTotalMinutes(c)} min total · ${cardioWorkMinutes(c)} min at max speed</p>`;
+}
 
 // ─────────────────────────────────────────────
 // STATE
@@ -943,6 +1056,18 @@ function renderSheet() {
     html += `<div class="section-label" style="margin-top:4px">Exercises</div>`;
 
     (w.exercises || []).forEach((ex, ei) => {
+      if (ex.cardio) {
+        html += `<div class="exercise-card">
+          <div class="ex-card-head">
+            <span class="ex-name" data-rename-ex="${ei}">${ex.name}</span>
+            <button class="icon-btn" data-del-ex="${ei}">×</button>
+          </div>
+          ${cardioFieldsHTML(ex.cardio, ei)}
+          <textarea class="exercise-notes" rows="2" placeholder="Notes…" data-notes-ex="${ei}">${ex.notes || ''}</textarea>
+        </div>`;
+        return;
+      }
+
       html += `<div class="exercise-card">
         <div class="ex-card-head">
           <span class="ex-name" data-rename-ex="${ei}">${ex.name}</span>
@@ -1052,7 +1177,7 @@ function renderSheet() {
   });
 
   // ── Reps / weight inputs
-  inner.querySelectorAll('.set-input').forEach(inp => {
+  inner.querySelectorAll('.set-input[data-ex]').forEach(inp => {
     const save = () => {
       workoutData[selectedDate].exercises[+inp.dataset.ex].sets[+inp.dataset.si][inp.dataset.f] = inp.value;
       saveData();
@@ -1113,9 +1238,38 @@ function renderSheet() {
   });
 
   // ── Unit toggle
-  inner.querySelectorAll('.unit-toggle button').forEach(btn => {
+  inner.querySelectorAll('.unit-toggle button[data-u]').forEach(btn => {
     btn.addEventListener('click', () => {
       workoutData[selectedDate].exercises[+btn.dataset.ex].sets[+btn.dataset.si].unit = btn.dataset.u;
+      saveData(); renderSheet();
+    });
+  });
+
+  // ── Cardio protocol fields
+  inner.querySelectorAll('[data-cf]').forEach(inp => {
+    const save = () => {
+      const ei = +inp.dataset.cardioEx;
+      const val = inp.value === '' ? 0 : Number(inp.value);
+      const c = workoutData[selectedDate].exercises[ei].cardio;
+      c[inp.dataset.cf] = inp.dataset.cf === 'cycles' ? Math.max(1, Math.round(val)) : val;
+      saveData(); renderSheet();
+    };
+    inp.addEventListener('change', save);
+    inp.addEventListener('blur', save);
+  });
+
+  // ── Cardio speed unit toggle
+  inner.querySelectorAll('[data-cu]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      workoutData[selectedDate].exercises[+btn.dataset.cardioEx].cardio.speedUnit = btn.dataset.cu;
+      saveData(); renderSheet();
+    });
+  });
+
+  // ── Cardio interval unit toggle
+  inner.querySelectorAll('[data-iu]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      workoutData[selectedDate].exercises[+btn.dataset.cardioEx].cardio.unit = btn.dataset.iu;
       saveData(); renderSheet();
     });
   });
@@ -1153,6 +1307,27 @@ function renderPickerList() {
       header.textContent = bp.label;
       list.appendChild(header);
     }
+
+    if (bpId === 'cardio') {
+      CARDIO_PROTOCOLS.forEach(proto => {
+        const isAdded = added.includes(proto.label);
+        const el = document.createElement('div');
+        el.className = 'picker-item' + (isAdded ? ' added' : '');
+        el.innerHTML = `<div>
+            <div class="picker-item-name">${proto.label}</div>
+            <div class="picker-item-blurb">${proto.blurb}</div>
+          </div>${isAdded ? '<span class="check">✓</span>' : ''}`;
+        el.addEventListener('click', () => {
+          if (isAdded) return;
+          if (!workoutData[selectedDate].exercises) workoutData[selectedDate].exercises = [];
+          workoutData[selectedDate].exercises.push({ name: proto.label, cardio: { ...proto.preset } });
+          saveData(); renderPickerList(); renderSheet();
+        });
+        list.appendChild(el);
+      });
+      return;
+    }
+
     allExercises(bpId).forEach(name => {
       const isAdded = added.includes(name);
       const el = document.createElement('div');
@@ -1409,7 +1584,14 @@ function importWorkoutData(file) {
 
           exList.forEach(ex => {
             if (!ex.name) return;
-            if (ex.cardio) return; // cardio format is incompatible, skip
+            if (ex.cardio) {
+              const c = ex.cardio;
+              const knownType = c && typeof c === 'object' && CARDIO_PROTOCOLS.some(p => p.type === c.type);
+              if (knownType && !exercises.find(e => e.name === ex.name)) {
+                exercises.push({ name: ex.name, cardio: { ...c } });
+              }
+              return;
+            }
 
             const sets = (ex.sets || []).map(s => {
               let weight = String(s.weight || '');
