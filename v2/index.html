@@ -757,6 +757,9 @@ const CARDIO_PROTOCOLS = [
   },
 ];
 
+/** Plain (non-protocol) cardio activities also offered in the Cardio picker, logged like any other exercise. */
+const CARDIO_EXTRAS = ['Cycling'];
+
 function isIntervalCardio(c) { return c.type === 'norwegian4x4' || c.type === 'hiitSprint'; }
 
 /** Total session length in minutes, work plus recovery. */
@@ -1321,6 +1324,20 @@ function renderPickerList() {
           if (isAdded) return;
           if (!workoutData[selectedDate].exercises) workoutData[selectedDate].exercises = [];
           workoutData[selectedDate].exercises.push({ name: proto.label, cardio: { ...proto.preset } });
+          saveData(); renderPickerList(); renderSheet();
+        });
+        list.appendChild(el);
+      });
+
+      CARDIO_EXTRAS.forEach(name => {
+        const isAdded = added.includes(name);
+        const el = document.createElement('div');
+        el.className = 'picker-item' + (isAdded ? ' added' : '');
+        el.innerHTML = `<span class="picker-item-name">${name}</span>${isAdded ? '<span class="check">✓</span>' : ''}`;
+        el.addEventListener('click', () => {
+          if (isAdded) return;
+          if (!workoutData[selectedDate].exercises) workoutData[selectedDate].exercises = [];
+          workoutData[selectedDate].exercises.push({ name, sets:[{ reps:'', weight:'', unit:'lbs' }] });
           saveData(); renderPickerList(); renderSheet();
         });
         list.appendChild(el);
