@@ -261,7 +261,7 @@
       justify-content: space-between;
       margin-bottom: 10px;
     }
-    .ex-name { font-size: 15px; font-weight: 700; cursor: pointer; border-bottom: 1px dashed rgba(255,255,255,0.2); }
+    .ex-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-right: 8px; font-size: 15px; font-weight: 700; cursor: pointer; border-bottom: 1px dashed rgba(255,255,255,0.2); }
     .ex-name-input { font-size: 15px; font-weight: 700; background: rgba(255,255,255,0.07); border: 1px solid #5a5adc; border-radius: 6px; color: var(--text); padding: 3px 7px; outline: none; width: 100%; min-width: 0; }
     .icon-btn {
       background: none; border: none;
@@ -574,19 +574,19 @@
     .import-btn:active { background: var(--surface2); }
 
     /* ── Grip variants (cable rows) ── */
-    .grip-row {
-      display: flex; flex-wrap: wrap; gap: 6px;
-      margin: 2px 0 10px;
+    .grip-pill {
+      position: relative; display: inline-flex; align-items: center; gap: 4px;
+      height: 30px; padding: 0 10px; border-radius: 999px;
+      border: 1.5px solid #4A90E2; color: #4A90E2;
+      font-size: 13px; font-weight: 700; white-space: nowrap;
     }
-    .grip-chip {
-      background: var(--surface3); border: 1px solid transparent;
-      color: var(--text2); font-size: 12px; font-weight: 600;
-      padding: 5px 10px; border-radius: 999px;
-      cursor: pointer; font-family: inherit;
+    .grip-pill.set { background: #4A90E2; color: #fff; }
+    .grip-caret { font-size: 10px; opacity: 0.85; }
+    /* Invisible native select covers the pill: tap anywhere on it opens the iOS picker */
+    .grip-select {
+      position: absolute; inset: 0; width: 100%; height: 100%;
+      opacity: 0; font-size: 16px; border: none; -webkit-appearance: none; appearance: none;
     }
-    .grip-chip.active { background: #4A90E2; color: #fff; }
-    .grip-row.needs-pick .grip-chip { border-color: #4A90E2; }
-    .grip-hint { font-size: 11px; color: #4A90E2; width: 100%; font-weight: 600; }
     .grip-filter { justify-content: flex-start; flex-wrap: wrap; }
     .set-grip-tag {
       display: inline-block; font-size: 10px; font-weight: 700;
@@ -1186,7 +1186,14 @@ function renderSheet() {
       html += `<div class="exercise-card">
         <div class="ex-card-head">
           <span class="ex-name" data-rename-ex="${ei}">${ex.name}</span>
-          <div style="display:flex;align-items:center;gap:8px">
+          <div style="display:flex;align-items:center;gap:8px;flex-shrink:0">
+            ${(hasGrips(ex.name) || ex.grip) ? `<label class="grip-pill${ex.grip ? ' set' : ''}">
+              <span>${ex.grip ? gripShort(ex.grip) : 'Grip'}</span><span class="grip-caret">▾</span>
+              <select class="grip-select" data-grip-ex="${ei}" aria-label="Grip">
+                <option value=""${ex.grip ? '' : ' selected'}>No grip</option>
+                ${GRIP_OPTIONS.map(g => `<option value="${g.id}"${ex.grip === g.id ? ' selected' : ''}>${g.label}</option>`).join('')}
+              </select>
+            </label>` : ''}
             <button class="icon-btn chart-btn" data-history-name="${ex.name}" data-history-grip="${ex.grip || ''}" style="color:#4A90E2;padding:0;display:flex;align-items:center;justify-content:center">
               <svg width="17" height="17" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">
                 <rect x="1" y="9" width="4" height="8" rx="1" fill="currentColor"/>
@@ -1197,10 +1204,6 @@ function renderSheet() {
             <button class="icon-btn" data-del-ex="${ei}">×</button>
           </div>
         </div>
-        ${(hasGrips(ex.name) || ex.grip) ? `<div class="grip-row${ex.grip ? '' : ' needs-pick'}">
-          ${ex.grip ? '' : '<div class="grip-hint">Pick a grip</div>'}
-          ${GRIP_OPTIONS.map(g => `<button class="grip-chip${ex.grip === g.id ? ' active' : ''}" data-grip-ex="${ei}" data-grip="${g.id}">${g.label}</button>`).join('')}
-        </div>` : ''}
         <div class="set-headers">
           <div class="set-header-label">Set</div>
           <div class="set-header-label">Reps</div>
@@ -1303,12 +1306,11 @@ function renderSheet() {
     });
   });
 
-  // ── Grip chips
-  inner.querySelectorAll('[data-grip-ex]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const ex = workoutData[selectedDate].exercises[+btn.dataset.gripEx];
-      ex.grip = ex.grip === btn.dataset.grip ? undefined : btn.dataset.grip;
-      if (!ex.grip) delete ex.grip;
+  // ── Grip dropdown (in the card header, left of the chart button)
+  inner.querySelectorAll('select[data-grip-ex]').forEach(sel => {
+    sel.addEventListener('change', () => {
+      const ex = workoutData[selectedDate].exercises[+sel.dataset.gripEx];
+      if (sel.value) ex.grip = sel.value; else delete ex.grip;
       saveData(); renderSheet();
     });
   });
