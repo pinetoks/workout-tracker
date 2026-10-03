@@ -1947,7 +1947,12 @@ function init() {
   setInterval(() => refreshIfStale(false), 60 * 1000);
 
   if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('sw.js').catch(() => {});
+    navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' })
+      .then(reg => {
+        // Check for a new version whenever the app is brought back to the foreground
+        document.addEventListener('visibilitychange', () => { if (!document.hidden) reg.update().catch(() => {}); });
+      })
+      .catch(() => {});
   }
 }
 

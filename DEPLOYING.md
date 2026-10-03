@@ -40,10 +40,10 @@ Local clone: `~/Documents/workout-tracker`
 1. Edit the app file. For v2 that is `v2/index.html` — a single self-contained
    file with inline CSS and JS. Nothing to compile.
 
-2. **If you changed anything under `v2/`, bump the cache version in
-   `v2/sw.js`.** Change `const CACHE = 'workout-v24'` to `v24`, and so on. This
-   is not optional and it is the step most likely to be forgotten. See below for
-   why.
+2. If you changed `v2/sw.js` itself (or `manifest.json` / `icon.png`), bump the
+   cache version: `const CACHE = 'workout-v25'` -> `v26`, and so on. Changes to
+   `v2/index.html` alone no longer need a bump (since v25 pages are
+   network-first), but bumping anyway is harmless.
 
 3. Commit and push:
 
@@ -67,29 +67,24 @@ Local clone: `~/Documents/workout-tracker`
    activates the new worker, and the launch after that is served from the
    rebuilt cache.
 
-## Why the service worker cache version matters
+## How the service worker caches (since workout-v25)
 
-`v2/sw.js` precaches `index.html`, `manifest.json` and `icon.png` under a cache
-named by the `CACHE` constant, and its fetch handler is cache-first with no
-revalidation:
+- **Page loads (`index.html`) are network-first.** When the phone is online it
+  always gets the latest `index.html` (fetched with `cache: 'no-store'`) and
+  refreshes the cached copy; the cache is only used offline.
+- **Other assets (manifest, icon) are cache-first**, so changing them still
+  needs a `CACHE` bump.
+- **Install uses `cache: 'reload'`.** GitHub Pages sends `Cache-Control:
+  max-age=600`. Before v25, a new worker installed within 10 minutes of a push
+  could precache the OLD `index.html` from Safari's HTTP cache and then serve it
+  indefinitely. That is what happened with the v24 deploy (2026-10-03).
+- The page registers the worker with `updateViaCache: 'none'` and calls
+  `reg.update()` whenever the app comes back to the foreground, so the phone
+  notices a new `sw.js` without needing a cold launch.
 
-```js
-caches.match(e.request).then(r => r || fetch(e.request))
-```
-
-A file already in the cache is served from the cache forever. The network is
-only consulted for things the cache does not have. So a new `index.html` on the
-server is never picked up on its own.
-
-What breaks the deadlock is the `CACHE` string changing. A byte-different
-`sw.js` makes the browser treat it as a new worker; `install` re-fetches the
-file list from the network into a cache under the new name, and `activate`
-deletes every cache whose name does not match, so the stale copies go away.
-Because the worker calls `skipWaiting()` and `clients.claim()`, it takes over
-without waiting for every tab to close.
-
-Practical consequence: **shipping a change to `v2/index.html` without bumping
-`CACHE` ships nothing to anyone who already has the app installed.**
+History: up to v24 the fetch handler was pure cache-first
+(`caches.match(req).then(r => r || fetch(req))`), so every `index.html` change
+needed a `CACHE` bump to reach installed phones.
 
 ## Verifying a deploy
 
