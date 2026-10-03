@@ -572,6 +572,51 @@
       font-family: inherit;
     }
     .import-btn:active { background: var(--surface2); }
+
+    /* ── Grip variants (cable rows) ── */
+    .grip-row {
+      display: flex; flex-wrap: wrap; gap: 6px;
+      margin: 2px 0 10px;
+    }
+    .grip-chip {
+      background: var(--surface3); border: 1px solid transparent;
+      color: var(--text2); font-size: 12px; font-weight: 600;
+      padding: 5px 10px; border-radius: 999px;
+      cursor: pointer; font-family: inherit;
+    }
+    .grip-chip.active { background: #4A90E2; color: #fff; }
+    .grip-row.needs-pick .grip-chip { border-color: #4A90E2; }
+    .grip-hint { font-size: 11px; color: #4A90E2; width: 100%; font-weight: 600; }
+    .grip-filter { justify-content: flex-start; flex-wrap: wrap; }
+    .set-grip-tag {
+      display: inline-block; font-size: 10px; font-weight: 700;
+      color: #4A90E2; background: rgba(74,144,226,0.12);
+      padding: 1px 6px; border-radius: 6px; margin-left: 6px;
+      text-transform: uppercase; letter-spacing: 0.3px;
+    }
+    .picker-add-another { font-size: 11px; color: #4A90E2; font-weight: 600; }
+
+    /* ── Confirm dialog ── */
+    #confirm {
+      position: fixed; inset: 0; z-index: 100;
+      background: rgba(0,0,0,0.6);
+      display: none; align-items: center; justify-content: center;
+      padding: 24px;
+    }
+    #confirm.open { display: flex; }
+    .confirm-box {
+      background: var(--surface2); border: 1px solid var(--surface3);
+      border-radius: 16px; padding: 20px; width: 100%; max-width: 320px;
+    }
+    .confirm-title { font-size: 17px; font-weight: 700; margin-bottom: 6px; }
+    .confirm-msg { font-size: 14px; color: var(--text2); line-height: 1.4; margin-bottom: 18px; }
+    .confirm-actions { display: flex; gap: 10px; }
+    .confirm-actions button {
+      flex: 1; border: none; border-radius: 10px; padding: 11px;
+      font-size: 15px; font-weight: 700; font-family: inherit; cursor: pointer;
+    }
+    #confirmCancel { background: var(--surface3); color: var(--text); }
+    #confirmOk { background: #E5484D; color: #fff; }
   </style>
 </head>
 <body>
@@ -630,6 +675,17 @@
     <div class="picker-title" id="historyTitle"></div>
   </div>
   <div id="history-inner"></div>
+</div>
+
+<div id="confirm">
+  <div class="confirm-box">
+    <div class="confirm-title" id="confirmTitle"></div>
+    <div class="confirm-msg" id="confirmMsg"></div>
+    <div class="confirm-actions">
+      <button id="confirmCancel">Cancel</button>
+      <button id="confirmOk">Delete</button>
+    </div>
+  </div>
 </div>
 
 <script>
@@ -760,6 +816,56 @@ const CARDIO_PROTOCOLS = [
 /** Plain (non-protocol) cardio activities also offered in the Cardio picker, logged like any other exercise. */
 const CARDIO_EXTRAS = ['Cycling'];
 
+// ─────────────────────────────────────────────
+// GRIP VARIANTS
+// All grips are logged under the same exercise name with an `ex.grip` field,
+// so history can show one grip or all of them together.
+// ─────────────────────────────────────────────
+
+const GRIP_OPTIONS = [
+  { id: 'close',   label: 'Close',         short: 'Close' },
+  { id: 'wide',    label: 'Wide',          short: 'Wide' },
+  { id: 'neutral', label: 'Neutral',       short: 'Neutral' },
+  { id: 'single',  label: 'Single-handed', short: 'Single' },
+];
+const NO_GRIP = '__none';
+
+function hasGrips(name) { return /cable\s*row/i.test(name || ''); }
+function gripLabel(id) {
+  if (id === NO_GRIP || !id) return 'No grip set';
+  return GRIP_OPTIONS.find(g => g.id === id)?.label || id;
+}
+function gripShort(id) { return GRIP_OPTIONS.find(g => g.id === id)?.short || ''; }
+
+// ─────────────────────────────────────────────
+// CONFIRM DIALOG
+// ─────────────────────────────────────────────
+
+function askConfirm(title, message, okLabel = 'Delete') {
+  return new Promise(resolve => {
+    const wrap = document.getElementById('confirm');
+    document.getElementById('confirmTitle').textContent = title;
+    document.getElementById('confirmMsg').textContent = message;
+    const ok = document.getElementById('confirmOk');
+    const cancel = document.getElementById('confirmCancel');
+    ok.textContent = okLabel;
+    const done = val => {
+      wrap.classList.remove('open');
+      ok.onclick = cancel.onclick = wrap.onclick = null;
+      resolve(val);
+    };
+    ok.onclick = e => { e.stopPropagation(); done(true); };
+    cancel.onclick = e => { e.stopPropagation(); done(false); };
+    wrap.onclick = e => { if (e.target === wrap) done(false); };
+    wrap.classList.add('open');
+  });
+}
+
+function setHasData(s) { return !!(s && (s.reps || s.weight)); }
+function exerciseHasData(ex) {
+  return !!(ex && (ex.cardio || (ex.notes || '').trim() || (ex.sets || []).some(setHasData)));
+}
+
 function isIntervalCardio(c) { return c.type === 'norwegian4x4' || c.type === 'hiitSprint'; }
 
 /** Total session length in minutes, work plus recovery. */
@@ -843,6 +949,8 @@ let touchStartX = 0;
 let historyExercise = null;
 let historyMetric = 'weight';
 let historyRange = 0;
+let historyGrip = '';   // '' = all grips, otherwise a GRIP_OPTIONS id or NO_GRIP
+let lastRenderedDay = null;
 
 // ─────────────────────────────────────────────
 // STORAGE
@@ -906,35 +1014,39 @@ function formatDate(s) {
 // STATS
 // ─────────────────────────────────────────────
 
-function renderStats() {
-  const now = new Date();
+/** A day counts as active if it has any muscle group other than Rest. */
+function isActiveDay(w) {
+  return getBodyParts(w).some(id => id !== 'rest');
+}
 
-  // Cardio days in last 28 days
+function renderStats() {
+  // Always compute relative to the real current date. (Previously this only ran on
+  // launch/save, so a home-screen app resumed from the background kept showing the
+  // numbers from whenever it was last opened.)
+  const now = new Date();
+  lastRenderedDay = todayKey();
+  const keyFor = offset => {
+    const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() - offset);
+    return dateKey(d.getFullYear(), d.getMonth() + 1, d.getDate());
+  };
+
+  // Cardio days in last 28 days (today + previous 27)
   let cardio28 = 0;
   for (let i = 0; i < 28; i++) {
-    const d = new Date(now);
-    d.setDate(now.getDate() - i);
-    const k = `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
-    if (workoutData[k] && getBodyParts(workoutData[k]).includes('cardio')) cardio28++;
+    if (getBodyParts(workoutData[keyFor(i)]).includes('cardio')) cardio28++;
   }
 
-  // This week: Sunday → today
+  // This week: Sunday → today (matches the calendar's Sunday-first layout)
   const sinceSunday = now.getDay(); // 0=Sun, 1=Mon, …
   let thisWeek = 0;
   for (let i = 0; i <= sinceSunday; i++) {
-    const d = new Date(now);
-    d.setDate(now.getDate() - sinceSunday + i);
-    const k = `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
-    if (workoutData[k] && getBodyParts(workoutData[k]).length > 0) thisWeek++;
+    if (isActiveDay(workoutData[keyFor(i)])) thisWeek++;
   }
 
-  // Active days in last 28 days
+  // Active days in last 28 days — Rest days no longer count as active
   let active28 = 0;
   for (let i = 0; i < 28; i++) {
-    const d = new Date(now);
-    d.setDate(now.getDate() - i);
-    const k = `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
-    if (workoutData[k] && getBodyParts(workoutData[k]).length > 0) active28++;
+    if (isActiveDay(workoutData[keyFor(i)])) active28++;
   }
 
   document.getElementById('stats').innerHTML = `
@@ -1075,7 +1187,7 @@ function renderSheet() {
         <div class="ex-card-head">
           <span class="ex-name" data-rename-ex="${ei}">${ex.name}</span>
           <div style="display:flex;align-items:center;gap:8px">
-            <button class="icon-btn chart-btn" data-history-name="${ex.name}" style="color:#4A90E2;padding:0;display:flex;align-items:center;justify-content:center">
+            <button class="icon-btn chart-btn" data-history-name="${ex.name}" data-history-grip="${ex.grip || ''}" style="color:#4A90E2;padding:0;display:flex;align-items:center;justify-content:center">
               <svg width="17" height="17" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">
                 <rect x="1" y="9" width="4" height="8" rx="1" fill="currentColor"/>
                 <rect x="7" y="5" width="4" height="12" rx="1" fill="currentColor"/>
@@ -1085,6 +1197,10 @@ function renderSheet() {
             <button class="icon-btn" data-del-ex="${ei}">×</button>
           </div>
         </div>
+        ${(hasGrips(ex.name) || ex.grip) ? `<div class="grip-row${ex.grip ? '' : ' needs-pick'}">
+          ${ex.grip ? '' : '<div class="grip-hint">Pick a grip</div>'}
+          ${GRIP_OPTIONS.map(g => `<button class="grip-chip${ex.grip === g.id ? ' active' : ''}" data-grip-ex="${ei}" data-grip="${g.id}">${g.label}</button>`).join('')}
+        </div>` : ''}
         <div class="set-headers">
           <div class="set-header-label">Set</div>
           <div class="set-header-label">Reps</div>
@@ -1123,8 +1239,26 @@ function renderSheet() {
 
   // ── Body part buttons
   inner.querySelectorAll('.bp-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
+    btn.addEventListener('click', async () => {
       const id = btn.dataset.bp;
+      const existing = workoutData[selectedDate];
+      const cur = getBodyParts(existing);
+      const exCount = (existing?.exercises || []).length;
+
+      // Guard actions that would wipe logged exercises
+      if (exCount > 0) {
+        const plural = `${exCount} exercise${exCount !== 1 ? 's' : ''}`;
+        if (id === 'rest' && !cur.includes('rest')) {
+          const ok = await askConfirm('Mark as Rest day?',
+            `This will delete the ${plural} logged on this day.`, 'Delete & Rest');
+          if (!ok) return;
+        } else if (id !== 'rest' && cur.length === 1 && cur[0] === id) {
+          const ok = await askConfirm(`Remove ${getBP(id)?.label || id}?`,
+            `This is the only muscle group for this day, so removing it deletes the whole record, including ${plural}.`);
+          if (!ok) return;
+        }
+      }
+
       if (!workoutData[selectedDate]) workoutData[selectedDate] = { bodyParts: [], exercises: [] };
       const w = workoutData[selectedDate];
       // migrate old format
@@ -1156,8 +1290,25 @@ function renderSheet() {
 
   // ── Delete exercise
   inner.querySelectorAll('[data-del-ex]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const ei = +btn.dataset.delEx;
+      const ex = workoutData[selectedDate].exercises[ei];
+      if (exerciseHasData(ex)) {
+        const name = ex.grip ? `${ex.name} (${gripLabel(ex.grip)})` : ex.name;
+        const ok = await askConfirm('Delete exercise?', `"${name}" and everything logged for it on this day will be removed.`);
+        if (!ok) return;
+      }
+      workoutData[selectedDate].exercises.splice(ei, 1);
+      saveData(); renderSheet();
+    });
+  });
+
+  // ── Grip chips
+  inner.querySelectorAll('[data-grip-ex]').forEach(btn => {
     btn.addEventListener('click', () => {
-      workoutData[selectedDate].exercises.splice(+btn.dataset.delEx, 1);
+      const ex = workoutData[selectedDate].exercises[+btn.dataset.gripEx];
+      ex.grip = ex.grip === btn.dataset.grip ? undefined : btn.dataset.grip;
+      if (!ex.grip) delete ex.grip;
       saveData(); renderSheet();
     });
   });
@@ -1173,8 +1324,16 @@ function renderSheet() {
 
   // ── Delete set
   inner.querySelectorAll('[data-del-set]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      workoutData[selectedDate].exercises[+btn.dataset.delSetEx].sets.splice(+btn.dataset.delSet, 1);
+    btn.addEventListener('click', async () => {
+      const sets = workoutData[selectedDate].exercises[+btn.dataset.delSetEx].sets;
+      const si = +btn.dataset.delSet;
+      if (setHasData(sets[si])) {
+        const s = sets[si];
+        const ok = await askConfirm(`Delete set ${si + 1}?`,
+          `${s.reps || '—'} reps @ ${s.weight || '—'} ${s.unit || 'lbs'} will be removed.`);
+        if (!ok) return;
+      }
+      sets.splice(si, 1);
       saveData(); renderSheet();
     });
   });
@@ -1237,7 +1396,7 @@ function renderSheet() {
 
   // ── History buttons (chart icon in set-headers row)
   inner.querySelectorAll('.chart-btn').forEach(btn => {
-    btn.addEventListener('click', e => { e.stopPropagation(); openHistory(btn.dataset.historyName); });
+    btn.addEventListener('click', e => { e.stopPropagation(); openHistory(btn.dataset.historyName, btn.dataset.historyGrip || ''); });
   });
 
   // ── Unit toggle
@@ -1346,10 +1505,15 @@ function renderPickerList() {
     }
 
     allExercises(bpId).forEach(name => {
-      const isAdded = added.includes(name);
+      // Grip exercises can be added more than once per day (e.g. close grip, then wide grip)
+      const multi = hasGrips(name);
+      const addedCount = added.filter(n => n === name).length;
+      const isAdded = !multi && addedCount > 0;
       const el = document.createElement('div');
       el.className = 'picker-item' + (isAdded ? ' added' : '');
-      el.innerHTML = `<span class="picker-item-name">${name}</span>${isAdded ? '<span class="check">✓</span>' : ''}`;
+      el.innerHTML = multi && addedCount > 0
+        ? `<span class="picker-item-name">${name}</span><span class="picker-add-another">✓ ${addedCount} · tap to add another grip</span>`
+        : `<span class="picker-item-name">${name}</span>${isAdded ? '<span class="check">✓</span>' : ''}`;
       el.addEventListener('click', () => {
         if (isAdded) return;
         if (!workoutData[selectedDate].exercises) workoutData[selectedDate].exercises = [];
@@ -1365,9 +1529,10 @@ function renderPickerList() {
 // HISTORY & GRAPH
 // ─────────────────────────────────────────────
 
-function openHistory(name) {
+function openHistory(name, grip = '') {
   historyExercise = name;
   historyMetric = 'weight';
+  historyGrip = grip;
   document.getElementById('historyTitle').textContent = name;
   renderHistory();
   document.getElementById('history').classList.add('open');
@@ -1378,36 +1543,53 @@ function closeHistory() {
   historyExercise = null;
 }
 
-function getSessionsForExercise(name) {
+/**
+ * Sessions for an exercise, one per day. All entries with this name on a day are
+ * combined (e.g. close grip + wide grip). `grip` filters to one grip:
+ * '' = all grips, NO_GRIP = entries logged before a grip was chosen.
+ * Each returned set carries a `grip` property.
+ */
+function getSessionsForExercise(name, grip = '') {
   let cutoff = null;
   if (historyRange > 0) {
     cutoff = new Date();
     cutoff.setDate(cutoff.getDate() - historyRange);
     cutoff.setHours(0, 0, 0, 0);
   }
+  const matchGrip = ex => !grip || (grip === NO_GRIP ? !ex.grip : ex.grip === grip);
 
   return Object.entries(workoutData)
-    .filter(([dateStr, data]) => {
-      if (cutoff) {
-        const [y, m, d] = dateStr.split('-').map(Number);
-        const date = new Date(y, m-1, d);
-        if (date < cutoff) return false;
-      }
-      const ex = (data.exercises || []).find(e => e.name === name);
-      return ex && (ex.sets || []).some(s => s.reps && s.weight);
-    })
     .map(([dateStr, data]) => {
       const [y, m, d] = dateStr.split('-').map(Number);
       const date = new Date(y, m-1, d);
-      const ex = data.exercises.find(e => e.name === name);
-      const sets = ex.sets.filter(s => s.reps && s.weight);
+      if (cutoff && date < cutoff) return null;
+      const sets = (data.exercises || [])
+        .filter(e => e.name === name && !e.cardio && matchGrip(e))
+        .flatMap(e => (e.sets || [])
+          .filter(s => s.reps && s.weight)
+          .map(s => ({ ...s, grip: e.grip || NO_GRIP })));
+      if (sets.length === 0) return null;
       return {
         dateStr, date, sets,
         shortDate: `${m}/${d}`,
         longDate: date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
       };
     })
+    .filter(Boolean)
     .sort((a, b) => a.date - b.date);
+}
+
+/** Which grips have ever been logged for this exercise (ignores the date range). */
+function gripsLoggedFor(name) {
+  const found = new Set();
+  Object.values(workoutData).forEach(data => {
+    (data.exercises || []).forEach(e => {
+      if (e.name === name && !e.cardio && (e.sets || []).some(s => s.reps && s.weight)) {
+        found.add(e.grip || NO_GRIP);
+      }
+    });
+  });
+  return found;
 }
 
 function renderChart(sessions, metric) {
@@ -1487,8 +1669,21 @@ function renderChart(sessions, metric) {
 }
 
 function renderHistory() {
-  const sessions = getSessionsForExercise(historyExercise);
+  const sessions = getSessionsForExercise(historyExercise, historyGrip);
   const inner = document.getElementById('history-inner');
+
+  const logged = gripsLoggedFor(historyExercise);
+  const showGrips = hasGrips(historyExercise) || [...logged].some(g => g !== NO_GRIP);
+  document.getElementById('historyTitle').textContent =
+    historyExercise + (historyGrip ? ` · ${historyGrip === NO_GRIP ? 'No grip' : gripLabel(historyGrip)}` : '');
+  let gripFilterHTML = '';
+  if (showGrips) {
+    const opts = [{ id: '', label: 'All grips' }, ...GRIP_OPTIONS];
+    if (logged.has(NO_GRIP)) opts.push({ id: NO_GRIP, label: 'No grip' });
+    gripFilterHTML = `<div class="range-toggle grip-filter">${opts.map(o =>
+      `<button class="range-btn ${historyGrip === o.id ? 'active' : ''}" data-g="${o.id}">${o.label}</button>`
+    ).join('')}</div>`;
+  }
 
   const unit = sessions.length > 0 && sessions[sessions.length-1].sets[0]?.unit === 'kg' ? 'kg' : 'lbs';
   const unitLabel = historyMetric === 'weight' ? `Max weight (${unit})` : `Total volume (${unit})`;
@@ -1498,6 +1693,7 @@ function renderHistory() {
       <button class="metric-btn ${historyMetric === 'weight' ? 'active' : ''}" data-m="weight">Max Weight</button>
       <button class="metric-btn ${historyMetric === 'volume' ? 'active' : ''}" data-m="volume">Total Volume</button>
     </div>
+    ${gripFilterHTML}
     <div class="range-toggle">
       <button class="range-btn ${historyRange === 7  ? 'active' : ''}" data-r="7">7D</button>
       <button class="range-btn ${historyRange === 30 ? 'active' : ''}" data-r="30">30D</button>
@@ -1511,7 +1707,7 @@ function renderHistory() {
     <div class="section-label">Sessions</div>`;
 
   if (sessions.length === 0) {
-    html += `<div style="color:var(--text2);font-size:14px;text-align:center;padding:24px 0">No sessions in the last 30 days</div>`;
+    html += `<div style="color:var(--text2);font-size:14px;text-align:center;padding:24px 0">No sessions in this range${historyGrip ? ' for this grip' : ''}</div>`;
   } else {
     [...sessions].reverse().forEach(s => {
       html += `<div class="session-entry">
@@ -1520,7 +1716,9 @@ function renderHistory() {
           <span class="session-count">${s.sets.length} set${s.sets.length !== 1 ? 's' : ''}</span>
         </div>`;
       s.sets.forEach((st, i) => {
-        html += `<div class="session-set-row">Set ${i+1}: ${st.reps} reps @ ${st.weight} ${st.unit || 'lbs'}</div>`;
+        const tag = showGrips && !historyGrip && st.grip !== NO_GRIP
+          ? `<span class="set-grip-tag">${gripShort(st.grip)}</span>` : '';
+        html += `<div class="session-set-row">Set ${i+1}: ${st.reps} reps @ ${st.weight} ${st.unit || 'lbs'}${tag}</div>`;
       });
       if (historyMetric === 'volume') {
         const unit = s.sets[0]?.unit || 'lbs';
@@ -1539,6 +1737,9 @@ function renderHistory() {
   });
   inner.querySelectorAll('[data-r]').forEach(btn => {
     btn.addEventListener('click', () => { historyRange = +btn.dataset.r; renderHistory(); });
+  });
+  inner.querySelectorAll('[data-g]').forEach(btn => {
+    btn.addEventListener('click', () => { historyGrip = btn.dataset.g; renderHistory(); });
   });
 }
 
@@ -1582,8 +1783,26 @@ function importWorkoutData(file) {
       };
 
       let days = 0;
+      const exKey = e => `${e.name}|${e.grip || ''}`;
 
       Object.entries(raw).forEach(([dateStr, sessions]) => {
+        // This app's own Export format: { "YYYY-MM-DD": { bodyParts, exercises } }
+        if (sessions && !Array.isArray(sessions) && typeof sessions === 'object') {
+          const bps = getBodyParts(sessions).filter(bp => BODY_PARTS.find(b => b.id === bp));
+          const exs = (sessions.exercises || []).filter(e => e && e.name).map(e => JSON.parse(JSON.stringify(e)));
+          if (bps.length === 0 && exs.length === 0) return;
+          days++;
+          const cur = workoutData[dateStr];
+          if (!cur) {
+            workoutData[dateStr] = { bodyParts: bps, exercises: exs };
+          } else {
+            if (!cur.bodyParts) { cur.bodyParts = getBodyParts(cur); delete cur.bodyPart; }
+            if (!cur.exercises) cur.exercises = [];
+            bps.forEach(bp => { if (!cur.bodyParts.includes(bp)) cur.bodyParts.push(bp); });
+            exs.forEach(ex => { if (!cur.exercises.find(e => exKey(e) === exKey(ex))) cur.exercises.push(ex); });
+          }
+          return;
+        }
         if (!Array.isArray(sessions) || sessions.length === 0) return;
 
         const bodyPartsSet = new Set();
@@ -1621,11 +1840,14 @@ function importWorkoutData(file) {
               return { reps: String(s.reps || ''), weight, unit };
             });
 
-            if (!exercises.find(e => e.name === ex.name)) {
-              exercises.push({
+            if (!exercises.find(e => exKey(e) === exKey(ex))) {
+              const entry = {
                 name: ex.name,
                 sets: sets.length ? sets : [{ reps:'', weight:'', unit:'lbs' }]
-              });
+              };
+              if (ex.grip) entry.grip = ex.grip;
+              if (ex.notes) entry.notes = ex.notes;
+              exercises.push(entry);
             }
           });
         });
@@ -1639,8 +1861,10 @@ function importWorkoutData(file) {
           bodyPartsSet.forEach(bp => {
             if (!workoutData[dateStr].bodyParts.includes(bp)) workoutData[dateStr].bodyParts.push(bp);
           });
+          if (!workoutData[dateStr].bodyParts) workoutData[dateStr].bodyParts = getBodyParts(workoutData[dateStr]);
+          if (!workoutData[dateStr].exercises) workoutData[dateStr].exercises = [];
           exercises.forEach(ex => {
-            if (!workoutData[dateStr].exercises.find(e => e.name === ex.name)) {
+            if (!workoutData[dateStr].exercises.find(e => exKey(e) === exKey(ex))) {
               workoutData[dateStr].exercises.push(ex);
             }
           });
@@ -1707,6 +1931,20 @@ function init() {
     const file = e.target.files[0];
     if (file) { importWorkoutData(file); e.target.value = ''; }
   });
+
+  // Keep stats + "today" highlight current when the home-screen app is resumed
+  // from the background (iOS doesn't reload it) or left open past midnight.
+  const refreshIfStale = (force) => {
+    if (document.hidden) return;
+    if (force || lastRenderedDay !== todayKey()) {
+      renderStats();
+      renderCalendar();
+    }
+  };
+  document.addEventListener('visibilitychange', () => refreshIfStale(true));
+  window.addEventListener('pageshow', () => refreshIfStale(true));
+  window.addEventListener('focus', () => refreshIfStale(true));
+  setInterval(() => refreshIfStale(false), 60 * 1000);
 
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('sw.js').catch(() => {});

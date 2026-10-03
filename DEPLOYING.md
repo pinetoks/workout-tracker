@@ -41,7 +41,7 @@ Local clone: `~/Documents/workout-tracker`
    file with inline CSS and JS. Nothing to compile.
 
 2. **If you changed anything under `v2/`, bump the cache version in
-   `v2/sw.js`.** Change `const CACHE = 'workout-v23'` to `v24`, and so on. This
+   `v2/sw.js`.** Change `const CACHE = 'workout-v24'` to `v24`, and so on. This
    is not optional and it is the step most likely to be forgotten. See below for
    why.
 
