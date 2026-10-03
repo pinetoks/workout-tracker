@@ -459,7 +459,34 @@
       overflow-y: auto;
       -webkit-overflow-scrolling: touch;
     }
-    #history.open { transform: translateX(0); }
+    #history.open, #dayload.open { transform: translateX(0); }
+    #dayload {
+      position: fixed; inset: 0; background: var(--bg); z-index: 40;
+      transform: translateX(100%);
+      transition: transform 0.3s cubic-bezier(0.32, 0.72, 0, 1);
+      display: flex; flex-direction: column;
+      overflow-y: auto; -webkit-overflow-scrolling: touch;
+    }
+    #dayload::-webkit-scrollbar { display: none; }
+    #dayload-inner { padding: 16px; flex: 1; padding-bottom: calc(24px + var(--safe-bottom)); }
+    .day-load-btn {
+      width: 100%; display: flex; align-items: center; justify-content: space-between;
+      background: var(--surface2); border: 1px solid var(--surface3); border-radius: 12px;
+      color: var(--text); font-family: inherit; font-size: 14px; font-weight: 600;
+      padding: 11px 14px; margin: 2px 0 14px; cursor: pointer;
+    }
+    .day-load-btn .dl-val { color: #4A90E2; font-weight: 700; }
+    .dl-headline { background: var(--surface); border-radius: 14px; padding: 14px; margin-bottom: 14px; }
+    .dl-big { font-size: 30px; font-weight: 800; color: #fff; line-height: 1.1; }
+    .dl-sub { font-size: 13px; color: var(--text2); margin-top: 4px; line-height: 1.4; }
+    .dl-delta-up { color: #4ADE80; font-weight: 700; }
+    .dl-delta-down { color: #F87171; font-weight: 700; }
+    .dl-readout { font-size: 12px; color: var(--text2); text-align: center; min-height: 16px; margin-top: 4px; }
+    .dl-help { font-size: 12px; color: var(--text2); line-height: 1.45; margin: -6px 2px 16px; }
+    .dl-row { display: flex; justify-content: space-between; gap: 10px; font-size: 13px; padding: 7px 0; border-top: 1px solid var(--border); }
+    .dl-row:first-of-type { border-top: none; }
+    .dl-row .dl-name { color: var(--text); font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .dl-row .dl-nums { color: var(--text2); white-space: nowrap; }
     #history::-webkit-scrollbar { display: none; }
     #history-inner { padding: 16px; flex: 1; padding-bottom: calc(24px + var(--safe-bottom)); }
 
@@ -675,6 +702,14 @@
     <div class="picker-title" id="historyTitle"></div>
   </div>
   <div id="history-inner"></div>
+</div>
+
+<div id="dayload">
+  <div class="picker-header">
+    <button class="back-btn" id="dayloadBack">‹ Back</button>
+    <div class="picker-title" id="dayloadTitle">Day load</div>
+  </div>
+  <div id="dayload-inner"></div>
 </div>
 
 <div id="confirm">
@@ -1157,6 +1192,13 @@ function renderSheet() {
   const w = workoutData[selectedDate];
 
   let html = `<div class="sheet-date">${formatDate(selectedDate)}</div>`;
+  const dayVol = dayMetric(selectedDate, 'volume');
+  if (dayMetric(selectedDate, 'sets')) {
+    html += `<button class="day-load-btn" id="dayLoadBtn">
+      <span>📊 Day load &amp; comparison</span>
+      <span class="dl-val">${dayVol ? Math.round(dayVol).toLocaleString() + ' lbs' : ''} ›</span>
+    </button>`;
+  }
   html += `<div class="section-label">Muscle Group</div><div class="bp-grid">`;
 
   const activeBPs = getBodyParts(w);
@@ -1290,6 +1332,7 @@ function renderSheet() {
 
   // ── Add exercise
   inner.querySelector('#addExBtn')?.addEventListener('click', openPicker);
+  inner.querySelector('#dayLoadBtn')?.addEventListener('click', () => openDayLoad(selectedDate));
 
   // ── Delete exercise
   inner.querySelectorAll('[data-del-ex]').forEach(btn => {
@@ -1745,6 +1788,220 @@ function renderHistory() {
   });
 }
 
+// ─────────────────────────────────────────────
+// DAY LOAD (whole-session totals, compared with previous days)
+// ─────────────────────────────────────────────
+
+let dayLoadDate = null;
+let dayLoadMetric = 'volume';   // 'volume' | 'sets' | 'relative'
+let dayLoadRange = 90;          // days; 0 = all
+let dayLoadFilter = '';         // '' = all days, else a body part id
+let dayLoadPick = null;         // dateStr of the bar tapped
+
+const KG_TO_LB = 2.20462;
+function setLbs(s) { const w = +s.weight; return isFinite(w) ? (s.unit === 'kg' ? w * KG_TO_LB : w) : 0; }
+function isWorkingSet(s) { return +s.reps > 0; }
+function strengthEntries(dateStr) { return (workoutData[dateStr]?.exercises || []).filter(e => !e.cardio); }
+function entryVolume(e) { return (e.sets || []).reduce((t, s) => t + (isWorkingSet(s) ? +s.reps * setLbs(s) : 0), 0); }
+function entryKey(e) { return `${e.name}|${e.grip || ''}`; }
+
+/** Previous sessions' volume for one exercise+grip, strictly before dateStr (most recent first). */
+function priorVolumes(key, dateStr, n = 4) {
+  return Object.keys(workoutData).filter(d => d < dateStr).sort().reverse()
+    .map(d => strengthEntries(d).filter(e => entryKey(e) === key).reduce((t, e) => t + entryVolume(e), 0))
+    .filter(v => v > 0).slice(0, n);
+}
+
+/** Per-exercise breakdown for one day (entries with the same exercise+grip are combined). */
+function dayBreakdown(dateStr) {
+  const map = new Map();
+  strengthEntries(dateStr).forEach(e => {
+    const k = entryKey(e);
+    const row = map.get(k) || { key: k, name: e.name, grip: e.grip, sets: 0, volume: 0 };
+    row.sets += (e.sets || []).filter(isWorkingSet).length;
+    row.volume += entryVolume(e);
+    map.set(k, row);
+  });
+  return [...map.values()].filter(r => r.sets > 0).map(r => {
+    const prior = r.volume > 0 ? priorVolumes(r.key, dateStr) : [];
+    r.baseline = prior.length ? prior.reduce((a, b) => a + b, 0) / prior.length : null;
+    r.ratio = r.baseline ? r.volume / r.baseline : null;
+    return r;
+  });
+}
+
+/**
+ * One number for a day.
+ *  volume   = Σ reps × weight (lbs; kg converted)
+ *  sets     = number of working sets (reps entered)
+ *  relative = average of (today's volume ÷ that exercise's average over its last
+ *             4 sessions) × 100 — 100 means "a normal day for these exercises"
+ */
+function dayMetric(dateStr, metric) {
+  const rows = dayBreakdown(dateStr);
+  if (metric === 'sets') return rows.reduce((t, r) => t + r.sets, 0) || null;
+  if (metric === 'volume') return rows.reduce((t, r) => t + r.volume, 0) || null;
+  const rs = rows.filter(r => r.ratio !== null);
+  return rs.length ? 100 * rs.reduce((t, r) => t + r.ratio, 0) / rs.length : null;
+}
+
+function fmtMetric(v, metric) {
+  if (v === null || v === undefined) return '—';
+  if (metric === 'volume') return `${Math.round(v).toLocaleString()} lbs`;
+  if (metric === 'sets') return `${v} set${v !== 1 ? 's' : ''}`;
+  return `${Math.round(v)}%`;
+}
+
+function openDayLoad(dateStr) {
+  dayLoadDate = dateStr;
+  dayLoadPick = dateStr;
+  dayLoadFilter = '';
+  renderDayLoad();
+  document.getElementById('dayload').classList.add('open');
+}
+function closeDayLoad() { document.getElementById('dayload').classList.remove('open'); }
+
+function renderDayLoad() {
+  const metric = dayLoadMetric;
+  const [sy, sm, sd] = dayLoadDate.split('-').map(Number);
+  const selDate = new Date(sy, sm - 1, sd);
+  let cutoff = null;
+  if (dayLoadRange > 0) { cutoff = new Date(selDate); cutoff.setDate(cutoff.getDate() - dayLoadRange); }
+
+  // Days to plot: up to and including the selected day, within range, matching the muscle filter
+  const days = Object.keys(workoutData).filter(d => d <= dayLoadDate).sort()
+    .filter(d => {
+      if (cutoff) { const [y, m, dd] = d.split('-').map(Number); if (new Date(y, m - 1, dd) < cutoff) return false; }
+      return !dayLoadFilter || getBodyParts(workoutData[d]).includes(dayLoadFilter);
+    })
+    .map(d => ({ d, v: dayMetric(d, metric) }))
+    .filter(x => x.v !== null);
+
+  const selVal = dayMetric(dayLoadDate, metric);
+  const prev = days.filter(x => x.d < dayLoadDate).slice(-4);
+  const prevAvg = prev.length ? prev.reduce((t, x) => t + x.v, 0) / prev.length : null;
+  const filterLabel = dayLoadFilter ? `${getBP(dayLoadFilter)?.label} days` : 'workout days';
+
+  let headline;
+  if (metric === 'relative') {
+    headline = selVal === null
+      ? `<div class="dl-sub">No earlier sessions of these exercises yet — log a few more days to get a baseline.</div>`
+      : `<div class="dl-sub">${selVal >= 100 ? 'Above' : 'Below'} your usual for these exercises (100% = your average of each exercise's last 4 sessions).</div>`;
+  } else if (prevAvg !== null && selVal !== null) {
+    const pct = Math.round((selVal / prevAvg - 1) * 100);
+    headline = `<div class="dl-sub"><span class="${pct >= 0 ? 'dl-delta-up' : 'dl-delta-down'}">${pct >= 0 ? '▲' : '▼'} ${Math.abs(pct)}%</span>
+      vs. average of your previous ${prev.length} ${filterLabel} (${fmtMetric(metric === 'sets' ? Math.round(prevAvg * 10) / 10 : prevAvg, metric)})</div>`;
+  } else {
+    headline = `<div class="dl-sub">No earlier ${filterLabel} in this range to compare with.</div>`;
+  }
+
+  const bps = getBodyParts(workoutData[dayLoadDate]).filter(id => id !== 'rest' && id !== 'cardio');
+  const helps = {
+    volume: 'Total volume = reps × weight summed over every set (kg converted to lbs). Good for comparing the same kind of day; leg days will naturally out-score arm days.',
+    sets: 'Working sets = sets with reps logged. A simple, well-supported proxy for training stimulus that doesn\'t favour heavy lifts.',
+    relative: 'Effort vs. normal compares each exercise with its own recent history, then averages. 100% = a typical session, so different muscle groups are comparable.',
+  };
+
+  let html = `
+    <div class="metric-toggle">
+      <button class="metric-btn ${metric === 'volume' ? 'active' : ''}" data-dm="volume">Volume</button>
+      <button class="metric-btn ${metric === 'sets' ? 'active' : ''}" data-dm="sets">Sets</button>
+      <button class="metric-btn ${metric === 'relative' ? 'active' : ''}" data-dm="relative">vs. Normal</button>
+    </div>
+    <div class="dl-help">${helps[metric]}</div>
+    <div class="dl-headline">
+      <div class="dl-big">${fmtMetric(selVal, metric)}</div>
+      ${headline}
+    </div>
+    <div class="range-toggle grip-filter">
+      <button class="range-btn ${dayLoadFilter === '' ? 'active' : ''}" data-df="">All days</button>
+      ${bps.map(id => `<button class="range-btn ${dayLoadFilter === id ? 'active' : ''}" data-df="${id}">${getBP(id).label} days</button>`).join('')}
+    </div>
+    <div class="range-toggle">
+      ${[[30,'30D'],[90,'90D'],[0,'All']].map(([r,l]) => `<button class="range-btn ${dayLoadRange === r ? 'active' : ''}" data-dr="${r}">${l}</button>`).join('')}
+    </div>
+    <div class="chart-wrap">
+      <div class="chart-unit">${metric === 'volume' ? 'Total volume (lbs)' : metric === 'sets' ? 'Working sets' : 'Effort vs. normal (%)'}</div>
+      ${renderDayBars(days, metric)}
+      <div class="dl-readout" id="dlReadout"></div>
+    </div>`;
+
+  // Breakdown of the selected day
+  const rows = dayBreakdown(dayLoadDate);
+  html += `<div class="section-label">${formatDate(dayLoadDate)}</div><div class="session-entry">`;
+  rows.forEach(r => {
+    const name = r.grip ? `${r.name} · ${gripShort(r.grip)}` : r.name;
+    const vs = r.ratio !== null ? ` · ${Math.round(r.ratio * 100)}%` : '';
+    html += `<div class="dl-row"><span class="dl-name">${name}</span>
+      <span class="dl-nums">${r.sets} set${r.sets !== 1 ? 's' : ''} · ${Math.round(r.volume).toLocaleString()} lbs${vs}</span></div>`;
+  });
+  html += `</div>`;
+
+  const inner = document.getElementById('dayload-inner');
+  inner.innerHTML = html;
+  document.getElementById('dayloadTitle').textContent = 'Day load';
+
+  const showReadout = d => {
+    const x = days.find(y => y.d === d);
+    const el = document.getElementById('dlReadout');
+    if (!x || !el) return;
+    const [y, m, dd] = d.split('-').map(Number);
+    const label = new Date(y, m - 1, dd).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+    const parts = getBodyParts(workoutData[d]).map(id => getBP(id)?.label).filter(Boolean).join(', ');
+    el.textContent = `${label} · ${parts} · ${fmtMetric(x.v, metric)}`;
+  };
+  showReadout(dayLoadPick && days.some(x => x.d === dayLoadPick) ? dayLoadPick : dayLoadDate);
+
+  inner.querySelectorAll('[data-dm]').forEach(b => b.addEventListener('click', () => { dayLoadMetric = b.dataset.dm; renderDayLoad(); }));
+  inner.querySelectorAll('[data-df]').forEach(b => b.addEventListener('click', () => { dayLoadFilter = b.dataset.df; renderDayLoad(); }));
+  inner.querySelectorAll('[data-dr]').forEach(b => b.addEventListener('click', () => { dayLoadRange = +b.dataset.dr; renderDayLoad(); }));
+  inner.querySelectorAll('[data-bar]').forEach(r => r.addEventListener('click', () => {
+    dayLoadPick = r.dataset.bar;
+    inner.querySelectorAll('.dl-bar').forEach(b => b.setAttribute('stroke', b.dataset.d === dayLoadPick ? '#fff' : 'none'));
+    showReadout(dayLoadPick);
+  }));
+}
+
+function renderDayBars(days, metric) {
+  if (days.length === 0) return '<div class="chart-empty">Nothing to show for this range</div>';
+  const W = 320, H = 170, pad = { t: 14, r: 8, b: 26, l: 40 };
+  const cW = W - pad.l - pad.r, cH = H - pad.t - pad.b;
+  const maxV = Math.max(...days.map(x => x.v), metric === 'relative' ? 110 : 0);
+  const hi = maxV * 1.08 || 1;
+  const n = days.length, slot = cW / n;
+  const bw = Math.max(2, Math.min(22, slot - 2));      // 2px gap between bars
+  const color = '#4A90E2';
+  let svg = `<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg" style="width:100%;display:block">`;
+  for (let i = 0; i <= 2; i++) {
+    const y = pad.t + (i / 2) * cH, val = hi - (i / 2) * hi;
+    svg += `<line x1="${pad.l}" y1="${y.toFixed(1)}" x2="${pad.l + cW}" y2="${y.toFixed(1)}" stroke="#252525" stroke-width="1"/>`;
+    const lbl = metric === 'volume' && val >= 1000 ? `${(val / 1000).toFixed(val >= 10000 ? 0 : 1)}k` : Math.round(val);
+    svg += `<text x="${pad.l - 4}" y="${(y + 3.5).toFixed(1)}" text-anchor="end" fill="#555" font-size="9" font-family="-apple-system,sans-serif">${lbl}</text>`;
+  }
+  if (metric === 'relative') {   // 100% reference line
+    const y = pad.t + cH - (100 / hi) * cH;
+    svg += `<line x1="${pad.l}" y1="${y.toFixed(1)}" x2="${pad.l + cW}" y2="${y.toFixed(1)}" stroke="#7070a0" stroke-width="1" stroke-dasharray="3 3"/>`;
+  }
+  days.forEach((x, i) => {
+    const cx = pad.l + slot * i + slot / 2;
+    const h = Math.max(1, (x.v / hi) * cH);
+    const y = pad.t + cH - h;
+    const sel = x.d === dayLoadDate;
+    const r = Math.min(4, bw / 2);
+    // rounded top, square base
+    const d = `M${(cx - bw / 2).toFixed(1)},${(pad.t + cH).toFixed(1)} V${(y + r).toFixed(1)} Q${(cx - bw / 2).toFixed(1)},${y.toFixed(1)} ${(cx - bw / 2 + r).toFixed(1)},${y.toFixed(1)} H${(cx + bw / 2 - r).toFixed(1)} Q${(cx + bw / 2).toFixed(1)},${y.toFixed(1)} ${(cx + bw / 2).toFixed(1)},${(y + r).toFixed(1)} V${(pad.t + cH).toFixed(1)} Z`;
+    svg += `<path class="dl-bar" data-d="${x.d}" d="${d}" fill="${color}" fill-opacity="${sel ? 1 : 0.4}" stroke="${x.d === dayLoadPick ? '#fff' : 'none'}" stroke-width="1.5"/>`;
+    svg += `<rect data-bar="${x.d}" x="${(pad.l + slot * i).toFixed(1)}" y="${pad.t}" width="${slot.toFixed(1)}" height="${cH}" fill="transparent" style="cursor:pointer"/>`;
+  });
+  const idx = n <= 6 ? days.map((_, i) => i) : [0, Math.floor((n - 1) / 2), n - 1];
+  idx.forEach(i => {
+    const [, m, dd] = days[i].d.split('-').map(Number);
+    const cx = pad.l + slot * i + slot / 2;
+    svg += `<text x="${cx.toFixed(1)}" y="${H - 6}" text-anchor="middle" fill="#555" font-size="9" font-family="-apple-system,sans-serif">${m}/${dd}</text>`;
+  });
+  return svg + '</svg>';
+}
+
 function addCustomExercise() {
   const name = document.getElementById('customInput').value.trim();
   if (!name || !selectedDate) return;
@@ -1903,6 +2160,7 @@ function init() {
   document.getElementById('pickerBack').addEventListener('click', closePicker);
   document.getElementById('pickerDoneBtn').addEventListener('click', closePicker);
   document.getElementById('historyBack').addEventListener('click', closeHistory);
+  document.getElementById('dayloadBack').addEventListener('click', closeDayLoad);
   document.getElementById('customAddBtn').addEventListener('click', addCustomExercise);
   document.getElementById('customInput').addEventListener('keydown', e => { if (e.key === 'Enter') addCustomExercise(); });
 
